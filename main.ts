@@ -113,9 +113,16 @@ function createSession(backend: LLMBackend = BACKEND, model?: string): Session {
     trustedChunks: new Set()
   };
   
-  // Archive all chunks to history
+  // Archive all chunks to history (avoid duplicates by checking chunk ID)
   inputStream.subscribe((chunk) => {
-    session.history.push(chunk);
+    const existingIndex = session.history.findIndex(c => c.id === chunk.id);
+    if (existingIndex !== -1) {
+      // Update existing chunk (e.g., when trust status changes)
+      session.history[existingIndex] = chunk;
+    } else {
+      // Add new chunk
+      session.history.push(chunk);
+    }
   });
   
   sessions.set(id, session);
@@ -270,11 +277,15 @@ function createTrustFilter(): Evaluator {
 /**
  * Build conversation context from session history
  * Only includes trusted chunks (user messages, assistant responses, trusted web content)
+ * Excludes the current chunk (which will be appended separately)
  */
-function buildConversationContext(history: Chunk[]): string {
+function buildConversationContext(history: Chunk[], excludeChunkId?: string): string {
   const contextParts: string[] = [];
   
   for (const chunk of history) {
+    // Skip the current chunk being processed
+    if (chunk.id === excludeChunkId) continue;
+    
     // Skip non-text chunks
     if (chunk.contentType !== 'text') continue;
     
@@ -325,7 +336,8 @@ function createLLMStreamEvaluator(
     }
     
     // Build full conversation context including trusted web content
-    const context = buildConversationContext(sessionHistory);
+    // Exclude current chunk since we'll append it separately
+    const context = buildConversationContext(sessionHistory, chunk.id);
     const currentMessage = chunk.content as string;
     
     // Create prompt with full context
