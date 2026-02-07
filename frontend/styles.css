@@ -20,6 +20,38 @@
     --user-text: #ffffff;
     --assistant-bubble: #f3f4f6;
     --assistant-text: #1f2937;
+    --focus-ring: rgba(37, 99, 235, 0.1);
+    --web-border-default: #f59e0b;
+    --web-bg-default: #fffbeb;
+    --web-border-trusted: #10b981;
+    --web-bg-trusted: #ecfdf5;
+    --web-border-untrusted: #ef4444;
+    --web-bg-untrusted: #fef2f2;
+}
+
+[data-theme="dark"] {
+    --primary-color: #3b82f6;
+    --primary-hover: #60a5fa;
+    --secondary-color: #6b7280;
+    --secondary-hover: #9ca3af;
+    --danger-color: #ef4444;
+    --danger-hover: #f87171;
+    --bg-color: #111827;
+    --surface-color: #1f2937;
+    --text-color: #f9fafb;
+    --text-secondary: #9ca3af;
+    --border-color: #374151;
+    --user-bubble: #3b82f6;
+    --user-text: #ffffff;
+    --assistant-bubble: #374151;
+    --assistant-text: #f9fafb;
+    --focus-ring: rgba(59, 130, 246, 0.2);
+    --web-border-default: #d97706;
+    --web-bg-default: #451a03;
+    --web-border-trusted: #059669;
+    --web-bg-trusted: #064e3b;
+    --web-border-untrusted: #dc2626;
+    --web-bg-untrusted: #7f1d1d;
 }
 
 body {
@@ -168,7 +200,7 @@ body {
 #message-input:focus {
     outline: none;
     border-color: var(--primary-color);
-    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+    box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
 #message-input:disabled {
@@ -230,18 +262,18 @@ body {
 
 /* Web Chunk Styles */
 .message.web {
-    border-left: 4px solid #f59e0b;
-    background-color: #fffbeb;
+    border-left: 4px solid var(--web-border-default);
+    background-color: var(--web-bg-default);
 }
 
 .message.web.trusted {
-    border-left-color: #10b981;
-    background-color: #ecfdf5;
+    border-left-color: var(--web-border-trusted);
+    background-color: var(--web-bg-trusted);
 }
 
 .message.web.untrusted {
-    border-left-color: #ef4444;
-    background-color: #fef2f2;
+    border-left-color: var(--web-border-untrusted);
+    background-color: var(--web-bg-untrusted);
 }
 
 .web-header {
@@ -250,7 +282,7 @@ body {
     gap: 0.75rem;
     margin-bottom: 0.5rem;
     padding-bottom: 0.5rem;
-    border-bottom: 1px solid rgba(0,0,0,0.1);
+    border-bottom: 1px solid var(--border-color);
 }
 
 .web-source {
@@ -450,9 +482,9 @@ body {
 }
 
 .error-message {
-    background-color: #fee2e2;
-    border: 1px solid #fecaca;
-    color: #dc2626;
+    background-color: var(--web-bg-untrusted);
+    border: 1px solid var(--web-border-untrusted);
+    color: var(--web-border-untrusted);
     padding: 1rem;
     border-radius: 0.5rem;
     margin: 1rem 0;
