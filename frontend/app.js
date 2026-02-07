@@ -1,11 +1,14 @@
 /**
  * RXCAFE Chat Frontend
  * Simple chat interface for the RXCAFE API
+ * Supports both KoboldCPP and Ollama backends
  */
 
 class RXCafeChat {
     constructor() {
         this.sessionId = null;
+        this.backend = null;
+        this.model = null;
         this.isGenerating = false;
         this.currentMessageEl = null;
         this.currentContent = '';
@@ -20,16 +23,26 @@ class RXCafeChat {
     }
     
     cacheElements() {
-        this.sessionIdEl = document.getElementById('session-id');
+        this.backendInfoEl = document.getElementById('backend-info');
         this.newSessionBtn = document.getElementById('new-session-btn');
         this.messagesEl = document.getElementById('messages');
         this.messageInput = document.getElementById('message-input');
         this.sendBtn = document.getElementById('send-btn');
         this.abortBtn = document.getElementById('abort-btn');
+        
+        // Modal elements
+        this.backendModal = document.getElementById('backend-modal');
+        this.createSessionBtn = document.getElementById('create-session-btn');
+        this.cancelBtn = document.getElementById('cancel-btn');
+        this.backendRadios = document.querySelectorAll('input[name="backend"]');
+        this.ollamaModelSection = document.getElementById('ollama-model-section');
+        this.ollamaModelSelect = document.getElementById('ollama-model');
     }
     
     bindEvents() {
-        this.newSessionBtn.addEventListener('click', () => this.createSession());
+        this.newSessionBtn.addEventListener('click', () => this.showBackendModal());
+        this.createSessionBtn.addEventListener('click', () => this.createSession());
+        this.cancelBtn.addEventListener('click', () => this.hideBackendModal());
         this.sendBtn.addEventListener('click', () => this.sendMessage());
         this.abortBtn.addEventListener('click', () => this.abortGeneration());
         
@@ -39,6 +52,44 @@ class RXCafeChat {
                 this.sendMessage();
             }
         });
+        
+        // Backend radio change
+        this.backendRadios.forEach(radio => {
+            radio.addEventListener('change', () => {
+                const isOllama = radio.value === 'ollama' && radio.checked;
+                this.ollamaModelSection.style.display = isOllama ? 'block' : 'none';
+                if (isOllama) {
+                    this.loadOllamaModels('ollama');
+                }
+            });
+        });
+    }
+    
+    async loadOllamaModels(backend) {
+        if (!backend) return;
+        
+        // Show loading state
+        this.ollamaModelSelect.innerHTML = '<option value="">Loading models...</option>';
+        this.ollamaModelSelect.disabled = true;
+        
+        try {
+            const response = await fetch(`/api/models?backend=${backend}`);
+            const data = await response.json();
+            
+            if (data.models && data.models.length > 0) {
+                this.ollamaModelSelect.innerHTML = data.models
+                    .map(m => `<option value="${m}">${m}</option>`)
+                    .join('');
+                this.ollamaModelSelect.disabled = false;
+            } else {
+                this.ollamaModelSelect.innerHTML = '<option value="llama2">llama2</option>';
+                this.ollamaModelSelect.disabled = false;
+            }
+        } catch (error) {
+            console.error('Failed to load models:', error);
+            this.ollamaModelSelect.innerHTML = '<option value="llama2">llama2 (default)</option>';
+            this.ollamaModelSelect.disabled = false;
+        }
     }
     
     autoResize() {
@@ -48,22 +99,46 @@ class RXCafeChat {
         });
     }
     
+    showBackendModal() {
+        this.backendModal.style.display = 'flex';
+        
+        // Check if Ollama is selected and load models
+        const selectedBackend = document.querySelector('input[name="backend"]:checked')?.value;
+        if (selectedBackend === 'ollama') {
+            this.loadOllamaModels('ollama');
+        }
+    }
+    
+    hideBackendModal() {
+        this.backendModal.style.display = 'none';
+    }
+    
     async createSession() {
+        const selectedBackend = document.querySelector('input[name="backend"]:checked')?.value || 'kobold';
+        const selectedModel = selectedBackend === 'ollama' ? this.ollamaModelSelect.value : undefined;
+        
         try {
             const response = await fetch('/api/session', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' }
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    backend: selectedBackend,
+                    model: selectedModel
+                })
             });
             
             const data = await response.json();
             
             if (data.sessionId) {
                 this.sessionId = data.sessionId;
-                this.sessionIdEl.textContent = `Session: ${this.sessionId.slice(0, 16)}...`;
+                this.backend = data.backend;
+                this.model = data.model;
+                this.backendInfoEl.textContent = `${this.backend}${this.model ? ': ' + this.model : ''}`;
                 this.messageInput.disabled = false;
                 this.sendBtn.disabled = false;
                 this.messagesEl.innerHTML = '';
-                this.addSystemMessage('Session created. Start chatting!');
+                this.addSystemMessage(`Session created with ${this.backend}${this.model ? ' (' + this.model + ')' : ''}`);
+                this.hideBackendModal();
             }
         } catch (error) {
             console.error('Failed to create session:', error);
@@ -73,8 +148,8 @@ class RXCafeChat {
     
     async sendMessage() {
         if (!this.sessionId) {
-            await this.createSession();
-            if (!this.sessionId) return;
+            this.showBackendModal();
+            return;
         }
         
         const message = this.messageInput.value.trim();
@@ -140,7 +215,7 @@ class RXCafeChat {
             }
         } catch (error) {
             console.error('Streaming error:', error);
-            this.showErrorInMessage(this.currentMessageEl, 'Failed to get response. Check if KoboldCPP is running.');
+            this.showErrorInMessage(this.currentMessageEl, 'Failed to get response. Check if the LLM server is running.');
         } finally {
             this.isGenerating = false;
             this.currentMessageEl.classList.remove('streaming');
@@ -153,8 +228,8 @@ class RXCafeChat {
     handleStreamData(data) {
         switch (data.type) {
             case 'token':
-                if (data.chunk && data.chunk.content) {
-                    this.currentContent += data.chunk.content;
+                if (data.token) {
+                    this.currentContent += data.token;
                     this.updateMessageContent(this.currentMessageEl, this.currentContent);
                 }
                 break;

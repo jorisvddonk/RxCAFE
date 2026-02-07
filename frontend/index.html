@@ -11,7 +11,7 @@
         <header class="header">
             <h1>RXCAFE Chat</h1>
             <div class="header-info">
-                <span id="session-id">No session</span>
+                <span id="backend-info">No backend</span>
                 <button id="new-session-btn" class="btn btn-secondary">New Session</button>
             </div>
         </header>
@@ -21,7 +21,7 @@
                 <div class="welcome-message">
                     <h2>Welcome to RXCAFE Chat</h2>
                     <p>A reactive chat application built with the RXCAFE architecture.</p>
-                    <p>Click "New Session" to start chatting.</p>
+                    <p>Click "New Session" to start chatting with your preferred LLM backend.</p>
                 </div>
             </div>
             
@@ -44,8 +44,41 @@
         </main>
         
         <footer class="footer">
-            <span>Powered by RXCAFE & KoboldCPP</span>
+            <span>Powered by RXCAFE • Supports KoboldCPP & Ollama</span>
         </footer>
+    </div>
+    
+    <!-- Backend Selection Modal -->
+    <div id="backend-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <h2>Select LLM Backend</h2>
+            <div class="backend-options">
+                <label class="backend-option">
+                    <input type="radio" name="backend" value="kobold" checked>
+                    <div class="backend-details">
+                        <strong>KoboldCPP</strong>
+                        <span>Connect to KoboldCPP server</span>
+                    </div>
+                </label>
+                <label class="backend-option">
+                    <input type="radio" name="backend" value="ollama">
+                    <div class="backend-details">
+                        <strong>Ollama</strong>
+                        <span>Connect to Ollama server</span>
+                    </div>
+                </label>
+            </div>
+            <div id="ollama-model-section" class="model-section" style="display: none;">
+                <label for="ollama-model">Model:</label>
+                <select id="ollama-model">
+                    <option value="">Loading models...</option>
+                </select>
+            </div>
+            <div class="modal-actions">
+                <button id="create-session-btn" class="btn btn-primary">Create Session</button>
+                <button id="cancel-btn" class="btn btn-secondary">Cancel</button>
+            </div>
+        </div>
     </div>
     
     <script src="/app.js"></script>
