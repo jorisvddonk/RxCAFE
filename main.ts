@@ -6,6 +6,16 @@
  * - Core business logic (from core.ts)
  * - HTTP server for API and frontend
  * - Telegram bot integration
+ * - Client trust system with SQLite
+ * 
+ * Usage:
+ *   bun start                                          # Start server
+ *   bun start -- --trust <token>                       # Trust a new API client
+ *   bun start -- --list-clients                        # List trusted API clients
+ *   bun start -- --revoke <id>                         # Revoke a trusted API client
+ *   bun start -- --trust-telegram <id_or_username>     # Trust a Telegram user
+ *   bun start -- --untrust-telegram <id_or_username>   # Untrust a Telegram user
+ *   bun start -- --list-telegram-users                 # List trusted Telegram users
  */
 
 import { serve } from 'bun';
@@ -29,8 +39,202 @@ import {
   type Session
 } from './core.js';
 import { TelegramBot, TelegramUser, TelegramConfig } from './lib/telegram.js';
+import { TrustDatabase, extractClientToken, maskToken } from './lib/trust.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+
+// =============================================================================
+// CLI Argument Parsing
+// =============================================================================
+
+const args = process.argv.slice(2);
+
+// Handle --trust command (add new client)
+const trustIndex = args.indexOf('--trust');
+if (trustIndex !== -1 && args[trustIndex + 1]) {
+  const token = args[trustIndex + 1];
+  const db = new TrustDatabase();
+  
+  if (db.isTokenTrusted(token)) {
+    console.log('❌ This token is already trusted');
+    db.close();
+    process.exit(1);
+  }
+  
+  const description = args[trustIndex + 2] && !args[trustIndex + 2].startsWith('--') 
+    ? args[trustIndex + 2] 
+    : undefined;
+  
+  db.addClient(description);
+  console.log('✅ Client trusted successfully');
+  console.log(`Token: ${maskToken(token)}`);
+  if (description) {
+    console.log(`Description: ${description}`);
+  }
+  db.close();
+  process.exit(0);
+}
+
+// Handle --generate-token command
+if (args.includes('--generate-token')) {
+  const db = new TrustDatabase();
+  const token = TrustDatabase.generateToken();
+  const description = args[args.indexOf('--generate-token') + 1] && !args[args.indexOf('--generate-token') + 1].startsWith('--')
+    ? args[args.indexOf('--generate-token') + 1]
+    : undefined;
+  
+  db.addClient(description);
+  console.log('✅ New client token generated and trusted');
+  console.log(`Token: ${token}`);
+  console.log('');
+  console.log('Share this token with the client. They should use it as:');
+  console.log('  - Authorization: Bearer <token> header');
+  console.log('  - Or ?token=<token> query parameter');
+  if (description) {
+    console.log(`Description: ${description}`);
+  }
+  db.close();
+  process.exit(0);
+}
+
+// Handle --list-clients command
+if (args.includes('--list-clients')) {
+  const db = new TrustDatabase();
+  const clients = db.listClients();
+  
+  if (clients.length === 0) {
+    console.log('No trusted clients found.');
+  } else {
+    console.log(`Trusted clients (${clients.length}):`);
+    console.log('');
+    console.log('ID  | Description          | Created            | Last Used          | Uses');
+    console.log('----|----------------------|--------------------|--------------------|------');
+    
+    for (const client of clients) {
+      const desc = (client.description || '').slice(0, 20).padEnd(20);
+      const created = new Date(client.createdAt).toLocaleString().slice(0, 18).padEnd(18);
+      const lastUsed = client.lastUsedAt 
+        ? new Date(client.lastUsedAt).toLocaleString().slice(0, 18).padEnd(18)
+        : 'Never'.padEnd(18);
+      const uses = client.useCount.toString().padStart(5);
+      
+      console.log(`${client.id.toString().padStart(3)} | ${desc} | ${created} | ${lastUsed} | ${uses}`);
+    }
+  }
+  
+  db.close();
+  process.exit(0);
+}
+
+// Handle --revoke command
+const revokeIndex = args.indexOf('--revoke');
+if (revokeIndex !== -1 && args[revokeIndex + 1]) {
+  const id = parseInt(args[revokeIndex + 1]);
+  if (isNaN(id)) {
+    console.log('❌ Invalid client ID');
+    process.exit(1);
+  }
+  
+  const db = new TrustDatabase();
+  const success = db.removeClient(id);
+  
+  if (success) {
+    console.log(`✅ Client ${id} revoked successfully`);
+  } else {
+    console.log(`❌ Client ${id} not found`);
+  }
+  
+  db.close();
+  process.exit(success ? 0 : 1);
+}
+
+// Handle --trust-telegram command
+const trustTelegramIndex = args.indexOf('--trust-telegram');
+if (trustTelegramIndex !== -1 && args[trustTelegramIndex + 1]) {
+  const identifier = args[trustTelegramIndex + 1];
+  const description = args[trustTelegramIndex + 2] && !args[trustTelegramIndex + 2].startsWith('--') 
+    ? args[trustTelegramIndex + 2] 
+    : undefined;
+  
+  const db = new TrustDatabase();
+  
+  // Check if it's a user ID (numeric) or username
+  const userId = parseInt(identifier);
+  if (!isNaN(userId)) {
+    db.trustTelegramUser(userId, undefined, undefined, description);
+    console.log(`✅ Trusted Telegram user ID: ${userId}`);
+  } else {
+    // Treat as username
+    db.trustTelegramUsername(identifier, description);
+    console.log(`✅ Trusted Telegram username: ${identifier}`);
+  }
+  
+  if (description) {
+    console.log(`Description: ${description}`);
+  }
+  
+  db.close();
+  process.exit(0);
+}
+
+// Handle --untrust-telegram command
+const untrustTelegramIndex = args.indexOf('--untrust-telegram');
+if (untrustTelegramIndex !== -1 && args[untrustTelegramIndex + 1]) {
+  const identifier = args[untrustTelegramIndex + 1];
+  
+  const db = new TrustDatabase();
+  
+  // Check if it's a user ID (numeric) or username
+  const userId = parseInt(identifier);
+  let success: boolean;
+  
+  if (!isNaN(userId)) {
+    success = db.untrustTelegramUser(userId);
+    if (success) {
+      console.log(`✅ Untrusted Telegram user ID: ${userId}`);
+    } else {
+      console.log(`❌ Telegram user ID ${userId} not found`);
+    }
+  } else {
+    success = db.untrustTelegramUsername(identifier);
+    if (success) {
+      console.log(`✅ Untrusted Telegram username: ${identifier}`);
+    } else {
+      console.log(`❌ Telegram username ${identifier} not found`);
+    }
+  }
+  
+  db.close();
+  process.exit(success ? 0 : 1);
+}
+
+// Handle --list-telegram-users command
+if (args.includes('--list-telegram-users')) {
+  const db = new TrustDatabase();
+  const users = db.listTrustedTelegramUsers();
+  
+  if (users.length === 0) {
+    console.log('No trusted Telegram users found.');
+  } else {
+    console.log(`Trusted Telegram users (${users.length}):`);
+    console.log('');
+    console.log('ID  | User ID    | Username             | First Name           | Created            | Uses');
+    console.log('----|------------|----------------------|----------------------|--------------------|------');
+    
+    for (const user of users) {
+      const userId = (user.telegramUserId?.toString() || 'N/A').padEnd(10);
+      const username = (user.username || 'N/A').padEnd(20);
+      const firstName = (user.firstName || 'N/A').padEnd(20);
+      const created = new Date(user.createdAt).toLocaleString().slice(0, 18).padEnd(18);
+      const uses = user.useCount.toString().padStart(5);
+      
+      console.log(`${user.id.toString().padStart(3)} | ${userId} | ${username} | ${firstName} | ${created} | ${uses}`);
+    }
+  }
+  
+  db.close();
+  process.exit(0);
+}
 
 // =============================================================================
 // Configuration
@@ -40,6 +244,10 @@ const config: CoreConfig = getDefaultConfig();
 const PORT = parseInt(process.env.PORT || '3000');
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const TELEGRAM_WEBHOOK_URL = process.env.TELEGRAM_WEBHOOK_URL;
+const TRUST_DB_PATH = process.env.TRUST_DB_PATH || './rxcafe-trust.db';
+
+// Initialize trust database
+const trustDb = new TrustDatabase(TRUST_DB_PATH);
 
 console.log(`RXCAFE Chat Server`);
 console.log(`Backend: ${config.backend}`);
@@ -49,6 +257,66 @@ console.log(`Ollama Model: ${config.ollamaModel}`);
 console.log(`Port: ${PORT}`);
 console.log(`Tracing: ${config.tracing ? 'ENABLED' : 'disabled'}`);
 console.log(`Telegram: ${TELEGRAM_TOKEN ? 'ENABLED' : 'disabled'}`);
+console.log(`Trust DB: ${TRUST_DB_PATH}`);
+console.log(`Trusted API clients: ${trustDb.getClientCount()}`);
+console.log(`Trusted Telegram users: ${trustDb.getTelegramUserCount()}`);
+
+// Check if we have any trusted API clients
+const hasTrustedClients = trustDb.hasTrustedClients();
+if (!hasTrustedClients) {
+  console.log('');
+  console.log('🔒 No trusted API clients configured - ALL API CLIENTS WILL BE BLOCKED');
+  console.log('   Run: bun start -- --generate-token [description]');
+  console.log('');
+}
+
+// Check Telegram trust status
+const hasTrustedTelegramUsers = trustDb.hasTrustedTelegramUsers();
+if (TELEGRAM_TOKEN && !hasTrustedTelegramUsers) {
+  console.log('');
+  console.log('🔒 No trusted Telegram users configured - ALL TELEGRAM USERS WILL BE BLOCKED');
+  console.log('   Run: bun start -- --trust-telegram <user_id_or_username> [description]');
+  console.log('');
+}
+
+// =============================================================================
+// Client Trust Verification
+// =============================================================================
+
+function createUntrustedResponse(token: string | null): Response {
+  const providedToken = token ? maskToken(token) : 'none';
+  
+  const body = {
+    error: 'Unauthorized',
+    message: 'This client is not trusted.',
+    providedToken: providedToken,
+    instructions: 'An admin needs to authorize this client by running:',
+    command: token 
+      ? `bun start -- --trust ${token} [description]`
+      : 'bun start -- --trust <token> [description]',
+    alternative: 'To generate a new token, run: bun start -- --generate-token [description]',
+    hint: 'Pass the token via Authorization: Bearer <token> header or ?token=<token> query parameter'
+  };
+  
+  return new Response(JSON.stringify(body, null, 2), {
+    status: 401,
+    headers: { 
+      'Content-Type': 'application/json',
+      'WWW-Authenticate': 'Bearer'
+    }
+  });
+}
+
+function verifyClient(request: Request): { trusted: boolean; token: string | null } {
+  const token = extractClientToken(request);
+  
+  if (!token) {
+    return { trusted: false, token: null };
+  }
+  
+  const isTrusted = trustDb.verifyToken(token);
+  return { trusted: isTrusted, token };
+}
 
 // =============================================================================
 // Telegram Bot Integration
@@ -78,7 +346,22 @@ async function initTelegramBot(): Promise<void> {
     
     // Handle incoming messages
     telegramBot.onMessage(async (chatId, text, user) => {
-      console.log(`Telegram message from ${user.first_name} (${chatId}): ${text.substring(0, 50)}...`);
+      console.log(`Telegram message from ${user.first_name} (${user.username || 'no username'}) ID:${user.id}: ${text.substring(0, 50)}...`);
+      
+      // Check if user is trusted
+      const isTrusted = trustDb.isTelegramUserTrusted(user.id, user.username);
+      if (!isTrusted) {
+        console.log(`[Telegram] Untrusted user ${user.first_name} (${user.id}) blocked`);
+        await telegramBot!.sendMessage(chatId, 
+          `🔒 *Access Denied*\n\n` +
+          `You are not authorized to use this bot.\n\n` +
+          `Your Telegram ID: \`${user.id}\`\n` +
+          `Username: \`${user.username || 'none'}\`\n\n` +
+          `Contact the admin to get access.`, 
+          { parseMode: 'Markdown' }
+        );
+        return;
+      }
       
       // Get or create session for this chat
       let sessionId = telegramSessions.get(chatId);
@@ -265,7 +548,6 @@ async function finalizeTelegramMessage(chatId: number, text: string, messageId: 
     
     // Delete status message if it exists
     if (statusMessageId) {
-      // Note: Telegram bots can't easily delete messages, but we could edit it to be empty
       try {
         await telegramBot.editMessage(chatId, statusMessageId, '✅');
       } catch {
@@ -549,14 +831,14 @@ const server = serve({
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     };
     
     if (request.method === 'OPTIONS') {
       return new Response(null, { headers: corsHeaders });
     }
     
-    // Serve frontend
+    // Serve frontend (no auth required for frontend files)
     if (pathname === '/' || pathname === '/index.html') {
       return new Response(getFrontendHtml(), {
         headers: { 'Content-Type': 'text/html', ...corsHeaders }
@@ -573,6 +855,28 @@ const server = serve({
       return new Response(getFrontendCss(), {
         headers: { 'Content-Type': 'text/css', ...corsHeaders }
       });
+    }
+    
+    // Health check (no auth required)
+    if (pathname === '/api/health') {
+      return new Response(JSON.stringify({ 
+        status: 'ok',
+        timestamp: Date.now(),
+        backend: config.backend,
+        koboldUrl: config.koboldBaseUrl,
+        ollamaUrl: config.ollamaBaseUrl,
+        ollamaModel: config.ollamaModel,
+        authRequired: true,
+        trustedClients: trustDb.getClientCount()
+      }), {
+        headers: { 'Content-Type': 'application/json', ...corsHeaders }
+      });
+    }
+    
+    // Verify client for all API endpoints below
+    const { trusted, token } = verifyClient(request);
+    if (!trusted) {
+      return addCors(createUntrustedResponse(token), corsHeaders);
     }
     
     // Telegram webhook endpoint
@@ -660,19 +964,6 @@ const server = serve({
       return addCors(response, corsHeaders);
     }
     
-    if (pathname === '/api/health') {
-      return new Response(JSON.stringify({ 
-        status: 'ok',
-        timestamp: Date.now(),
-        backend: config.backend,
-        koboldUrl: config.koboldBaseUrl,
-        ollamaUrl: config.ollamaBaseUrl,
-        ollamaModel: config.ollamaModel
-      }), {
-        headers: { 'Content-Type': 'application/json', ...corsHeaders }
-      });
-    }
-    
     // 404
     return new Response(JSON.stringify({ error: 'Not found' }), {
       status: 404,
@@ -692,3 +983,16 @@ console.log(`Server running at http://localhost:${PORT}`);
 
 // Initialize Telegram bot (if configured)
 initTelegramBot().catch(console.error);
+
+// Cleanup on exit
+process.on('SIGINT', () => {
+  console.log('\nShutting down...');
+  trustDb.close();
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  console.log('\nShutting down...');
+  trustDb.close();
+  process.exit(0);
+});
