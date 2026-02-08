@@ -174,6 +174,18 @@ export class TrustDatabase {
   }
 
   /**
+   * Get a token by description (for retrieving web interface token)
+   */
+  getTokenByDescription(description: string): string | null {
+    const stmt = this.db.prepare(`
+      SELECT token FROM trusted_clients WHERE description = ?
+    `);
+    const result = stmt.get(description) as { token: string } | undefined;
+    stmt.finalize();
+    return result?.token || null;
+  }
+
+  /**
    * Remove a trusted client by ID
    */
   removeClient(id: number): boolean {

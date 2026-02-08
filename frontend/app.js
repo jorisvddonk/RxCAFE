@@ -58,8 +58,29 @@ class RXCafeChat {
         this.currentContent = '';
         this.chunkElements = new Map(); // Map chunk IDs to DOM elements
         this.contextMenuChunkId = null;
+        this.token = this.getToken();
         
         this.init();
+    }
+    
+    // Get token from injected script or URL params
+    getToken() {
+        // First check for injected token from server
+        if (window.RXCAFE_TOKEN) {
+            return window.RXCAFE_TOKEN;
+        }
+        // Fallback to URL query param
+        const urlParams = new URLSearchParams(window.location.search);
+        return urlParams.get('token');
+    }
+    
+    // Build API URL with token
+    apiUrl(path) {
+        const url = new URL(path, window.location.origin);
+        if (this.token) {
+            url.searchParams.set('token', this.token);
+        }
+        return url.toString();
     }
     
     init() {
@@ -158,7 +179,7 @@ class RXCafeChat {
         if (!this.contextMenuChunkId || !this.sessionId) return;
         
         try {
-            const response = await fetch(`/api/session/${this.sessionId}/chunk/${this.contextMenuChunkId}/trust`, {
+            const response = await fetch(this.apiUrl(`/api/session/${this.sessionId}/chunk/${this.contextMenuChunkId}/trust`), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ trusted })
@@ -207,7 +228,7 @@ class RXCafeChat {
         this.ollamaModelSelect.disabled = true;
         
         try {
-            const response = await fetch(`/api/models?backend=${backend}`);
+            const response = await fetch(this.apiUrl(`/api/models?backend=${backend}`));
             const data = await response.json();
             
             if (data.models && data.models.length > 0) {
@@ -251,7 +272,7 @@ class RXCafeChat {
         const selectedModel = selectedBackend === 'ollama' ? this.ollamaModelSelect.value : undefined;
         
         try {
-            const response = await fetch('/api/session', {
+            const response = await fetch(this.apiUrl('/api/session'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
@@ -323,7 +344,7 @@ class RXCafeChat {
         this.scrollToBottom();
         
         try {
-            const response = await fetch(`/api/chat/${this.sessionId}`, {
+            const response = await fetch(this.apiUrl(`/api/chat/${this.sessionId}`), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ message })
@@ -383,7 +404,7 @@ class RXCafeChat {
         this.scrollToBottom();
         
         try {
-            const response = await fetch(`/api/session/${this.sessionId}/web`, {
+            const response = await fetch(this.apiUrl(`/api/session/${this.sessionId}/web`), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ url })
@@ -457,7 +478,7 @@ class RXCafeChat {
         if (!this.sessionId) return;
         
         try {
-            const response = await fetch(`/api/session/${this.sessionId}/chunk/${chunkId}/trust`, {
+            const response = await fetch(this.apiUrl(`/api/session/${this.sessionId}/chunk/${chunkId}/trust`), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ trusted })
@@ -512,7 +533,7 @@ class RXCafeChat {
         if (!this.sessionId || !this.isGenerating) return;
         
         try {
-            await fetch(`/api/chat/${this.sessionId}/abort`, {
+            await fetch(this.apiUrl(`/api/chat/${this.sessionId}/abort`), {
                 method: 'POST'
             });
         } catch (error) {

@@ -279,6 +279,19 @@ if (TELEGRAM_TOKEN && !hasTrustedTelegramUsers) {
   console.log('');
 }
 
+// Get or create web token for localhost access
+function getOrCreateWebToken(): string {
+  // First check for existing web token
+  const existingToken = trustDb.getTokenByDescription('Web Interface');
+  if (existingToken) {
+    return existingToken;
+  }
+  // Generate new token
+  return trustDb.addClient('Web Interface');
+}
+
+const webToken = getOrCreateWebToken();
+
 // =============================================================================
 // Client Trust Verification
 // =============================================================================
@@ -786,9 +799,15 @@ async function handleAbort(sessionId: string): Promise<Response> {
 // Frontend Serving
 // =============================================================================
 
-function getFrontendHtml(): string {
+function getFrontendHtml(token?: string): string {
   try {
-    return readFileSync(join(__dirname, 'frontend', 'index.html'), 'utf-8');
+    let html = readFileSync(join(__dirname, 'frontend', 'index.html'), 'utf-8');
+    // Inject token into HTML if provided
+    if (token) {
+      const tokenScript = `<script>window.RXCAFE_TOKEN = "${token}";</script>`;
+      html = html.replace('</head>', `${tokenScript}</head>`);
+    }
+    return html;
   } catch {
     return `<!DOCTYPE html>
 <html>
@@ -840,7 +859,7 @@ const server = serve({
     
     // Serve frontend (no auth required for frontend files)
     if (pathname === '/' || pathname === '/index.html') {
-      return new Response(getFrontendHtml(), {
+      return new Response(getFrontendHtml(webToken), {
         headers: { 'Content-Type': 'text/html', ...corsHeaders }
       });
     }
@@ -979,7 +998,7 @@ function addCors(response: Response, corsHeaders: Record<string, string>): Respo
   return response;
 }
 
-console.log(`Server running at http://localhost:${PORT}`);
+console.log(`Server running at http://localhost:${PORT}?token=${webToken}`);
 
 // Initialize Telegram bot (if configured)
 initTelegramBot().catch(console.error);
