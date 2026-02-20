@@ -9,51 +9,35 @@
  * 
  * Unidirectional data flow prevents infinite loops:
  * 
- *     inputStream → pipeline → outputStream → history
- *          │                         ↑
- *          │                         │
- *          └── NEVER emit back ──────┘
+ *     inputStream (Subject) → operators → outputStream (Subject) → history
+ *                                   │
+ *                                   └── errorStream (Subject) → UI
  * 
- * Pipeline (built once at session creation):
+ * Pipeline (built once at session creation using RxJS):
  * 
- *     inputStream
- *         │
- *         ▼
- *     textOnlyStream (type filter)
- *         │
- *         ▼
- *     annotatedStream (role annotator)
- *         │
- *         ▼
- *     trustedStream (trust filter)
- *         │
- *         ▼
- *     processWithLLM → llmStream
- *         │
- *         ▼
- *     combinedStream (merge: annotatedStream + llmStream)
- *         │
- *         ▼
- *     outputStream → history
+ *     inputStream.pipe(
+ *       filter(text only),
+ *       map(add role annotation),
+ *       filter(trusted only),
+ *       mergeMap(processWithLLM)
+ *     ) → outputStream
  * 
  * ═══════════════════════════════════════════════════════════════════════════════
  *                              KEY PRINCIPLES
  * ═══════════════════════════════════════════════════════════════════════════════
  * 
  * 1. UNIDIRECTIONAL FLOW
- *    LLM responses flow through llmStream → outputStream, never back to inputStream
+ *    LLM responses flow through outputStream, never back to inputStream
  * 
  * 2. PIPELINE BUILT ONCE
- *    Pipeline is constructed at session creation, not per message
- *    Avoids accumulating evaluators on each request
+ *    Pipeline is constructed at session creation using RxJS operators
  * 
  * 3. CALLBACKS STORED IN SESSION
  *    Each HTTP request updates session.callbacks
  *    LLM reads from session.callbacks (not closure)
  * 
- * 4. ONLY FINAL ASSISTANT CHUNK TO HISTORY
- *    Individual tokens streamed via onToken callback
- *    Complete response chunked to llmStream → outputStream → history
+ * 4. SEPARATE ERROR STREAM
+ *    Errors go to errorStream, not mixed with data
  * 
  * ═══════════════════════════════════════════════════════════════════════════════
  */
@@ -65,7 +49,7 @@ import {
   type Chunk,
   type Evaluator 
 } from './lib/chunk.js';
-import { ChunkStream, mergeStreams } from './lib/stream.js';
+import { Subject, Observable, merge, EMPTY, from, filter, map, mergeMap, catchError, tap } from './lib/stream.js';
 import { KoboldEvaluator } from './lib/kobold-api.js';
 import { OllamaEvaluator } from './lib/ollama-api.js';
 
@@ -130,8 +114,9 @@ export function createEvaluator(
 
 export interface Session {
   id: string;
-  inputStream: ChunkStream;
-  outputStream: ChunkStream;
+  inputStream: Subject<Chunk>;
+  outputStream: Subject<Chunk>;
+  errorStream: Subject<Error>;
   history: Chunk[];
   llmEvaluator: LLMEvaluator;
   backend: LLMBackend;
@@ -140,6 +125,7 @@ export interface Session {
   trustedChunks: Set<string>;
   callbacks: ChatCallbacks | null;
   systemPrompt: string | null;
+  pipelineSubscription?: { unsubscribe: () => void };
 }
 
 const sessions = new Map<string, Session>();
@@ -152,8 +138,9 @@ export function createSession(
   const id = `session-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
   const useBackend = backend || config.backend;
   
-  const inputStream = new ChunkStream();
-  const outputStream = new ChunkStream();
+  const inputStream = new Subject<Chunk>();
+  const outputStream = new Subject<Chunk>();
+  const errorStream = new Subject<Error>();
   
   const llmEvaluator = createEvaluator(useBackend, config, model);
   
@@ -161,6 +148,7 @@ export function createSession(
     id,
     inputStream,
     outputStream,
+    errorStream,
     history: [],
     llmEvaluator,
     backend: useBackend,
@@ -171,118 +159,158 @@ export function createSession(
     systemPrompt: null
   };
   
-  outputStream.subscribe((chunk) => {
-    const existingIndex = session.history.findIndex(c => c.id === chunk.id);
-    if (existingIndex !== -1) {
-      session.history[existingIndex] = chunk;
-    } else {
-      session.history.push(chunk);
+  outputStream.subscribe({
+    next: (chunk) => {
+      const existingIndex = session.history.findIndex(c => c.id === chunk.id);
+      if (existingIndex !== -1) {
+        session.history[existingIndex] = chunk;
+      } else {
+        session.history.push(chunk);
+      }
     }
   });
   
-  const textOnlyStream = inputStream.pipe(createTypeFilter(['text']));
-  const annotatedStream = textOnlyStream.pipe(createRoleAnnotator('user'));
-  const trustedStream = annotatedStream.pipe(createTrustFilter());
+  const pipeline$ = inputStream.pipe(
+    filter((chunk: Chunk) => chunk.contentType === 'text'),
+    
+    map((chunk: Chunk) => {
+      if (chunk.annotations['chat.role']) {
+        return chunk;
+      }
+      return annotateChunk(chunk, 'chat.role', 'user');
+    }),
+    
+    filter((chunk: Chunk) => {
+      const trustLevel = chunk.annotations['security.trust-level'];
+      return !trustLevel || trustLevel.trusted !== false;
+    }),
+    
+    mergeMap((chunk: Chunk) => processWithLLM(chunk, session, config.tracing)),
+    
+    map((chunk: Chunk) => {
+      if (chunk.contentType === 'text' && 
+          (chunk.producer === 'com.rxcafe.kobold-evaluator' || 
+           chunk.producer === 'com.rxcafe.ollama-evaluator' ||
+           chunk.producer === 'com.rxcafe.assistant')) {
+        return annotateChunk(chunk, 'chat.role', 'assistant');
+      }
+      return chunk;
+    }),
+    
+    catchError((error: Error) => {
+      session.errorStream.next(error);
+      return EMPTY;
+    })
+  );
   
-  const llmStream = new ChunkStream();
+  const annotatedInput$ = inputStream.pipe(
+    filter((chunk: Chunk) => chunk.contentType === 'text'),
+    map((chunk: Chunk) => {
+      if (chunk.annotations['chat.role']) {
+        return chunk;
+      }
+      return annotateChunk(chunk, 'chat.role', 'user');
+    })
+  );
   
-  trustedStream.pipe(
-    (chunk: Chunk) => processWithLLM(chunk, session, config.tracing)
-  ).pipe((chunk: Chunk) => {
-    llmStream.emit(chunk);
-    return chunk;
-  });
+  const combined$ = merge(annotatedInput$, pipeline$);
   
-  const combinedStream = mergeStreams(annotatedStream, llmStream);
-  
-  combinedStream.subscribe((chunk: Chunk) => {
-    let finalChunk = chunk;
-    if (chunk.contentType === 'text' && 
-        (chunk.producer === 'com.rxcafe.kobold-evaluator' || 
-         chunk.producer === 'com.rxcafe.ollama-evaluator' ||
-         chunk.producer === 'com.rxcafe.assistant')) {
-      finalChunk = annotateChunk(chunk, 'chat.role', 'assistant');
+  session.pipelineSubscription = combined$.subscribe({
+    next: (chunk: Chunk) => {
+      session.outputStream.next(chunk);
+    },
+    error: (error: Error) => {
+      session.errorStream.next(error);
     }
-    session.outputStream.emit(finalChunk);
   });
   
   sessions.set(id, session);
   return session;
 }
 
-async function processWithLLM(chunk: Chunk, session: Session, tracing: boolean): Promise<Chunk | Chunk[]> {
-  if (chunk.contentType !== 'text') {
-    return chunk;
-  }
-  
-  if (chunk.annotations['chat.role'] !== 'user') {
-    return chunk;
-  }
-  
-  const context = buildConversationContext(session.history, chunk.id, session.systemPrompt);
-  const currentMessage = chunk.content as string;
-  
-  const prompt = context 
-    ? `${context}\n\nUser: ${currentMessage}\nAssistant:`
-    : `User: ${currentMessage}\nAssistant:`;
-  
-  if (tracing) {
-    console.log('\n═══════════════════════════════════════════════════════════');
-    console.log('RXCAFE_TRACE: LLM Context');
-    console.log('═══════════════════════════════════════════════════════════');
-    console.log(`Chunk ID: ${chunk.id}`);
-    console.log(`Context Length: ${context.length} chars`);
-    console.log(`Total Prompt Length: ${prompt.length} chars`);
-    console.log('\n--- FULL CONTEXT SENT TO LLM ---');
-    console.log(prompt);
-    console.log('--- END CONTEXT ---\n');
-  }
-  
-  const contextChunk = createTextChunk(prompt, chunk.producer, {
-    ...chunk.annotations,
-    'llm.context-length': context.length,
-    'llm.full-prompt': true
-  });
-  
-  const outputs: Chunk[] = [];
-  let fullResponse = '';
-  
-  outputs.push(createNullChunk('com.rxcafe.llm', {
-    'llm.generation-started': true,
-    'llm.backend': session.backend,
-    'llm.parent-chunk-id': chunk.id
-  }));
-  
-  try {
-    for await (const tokenChunk of session.llmEvaluator.evaluateChunk(contextChunk)) {
-      if (tokenChunk.contentType === 'text') {
-        const token = tokenChunk.content as string;
-        fullResponse += token;
-        if (session.callbacks?.onToken) {
-          session.callbacks.onToken(token);
-        }
-      }
+function processWithLLM(chunk: Chunk, session: Session, tracing: boolean): Observable<Chunk> {
+  return new Observable(subscriber => {
+    if (chunk.contentType !== 'text') {
+      subscriber.next(chunk);
+      subscriber.complete();
+      return;
     }
     
-    const assistantChunk = createTextChunk(fullResponse, 'com.rxcafe.assistant', {
-      'chat.role': 'assistant'
+    if (chunk.annotations['chat.role'] !== 'user') {
+      subscriber.next(chunk);
+      subscriber.complete();
+      return;
+    }
+    
+    const context = buildConversationContext(session.history, chunk.id, session.systemPrompt);
+    const currentMessage = chunk.content as string;
+    
+    const prompt = context 
+      ? `${context}\n\nUser: ${currentMessage}\nAssistant:`
+      : `User: ${currentMessage}\nAssistant:`;
+    
+    if (tracing) {
+      console.log('\n═══════════════════════════════════════════════════════════');
+      console.log('RXCAFE_TRACE: LLM Context');
+      console.log('═══════════════════════════════════════════════════════════');
+      console.log(`Chunk ID: ${chunk.id}`);
+      console.log(`Context Length: ${context.length} chars`);
+      console.log(`Total Prompt Length: ${prompt.length} chars`);
+      console.log('\n--- FULL CONTEXT SENT TO LLM ---');
+      console.log(prompt);
+      console.log('--- END CONTEXT ---\n');
+    }
+    
+    const contextChunk = createTextChunk(prompt, chunk.producer, {
+      ...chunk.annotations,
+      'llm.context-length': context.length,
+      'llm.full-prompt': true
     });
-    outputs.push(assistantChunk);
     
-    if (session.callbacks?.onFinish) {
-      session.callbacks.onFinish(fullResponse);
-    }
-  } catch (error) {
-    outputs.push(createNullChunk('com.rxcafe.error', {
-      'error.message': error instanceof Error ? error.message : 'LLM error',
-      'error.source-chunk-id': chunk.id
+    subscriber.next(createNullChunk('com.rxcafe.llm', {
+      'llm.generation-started': true,
+      'llm.backend': session.backend,
+      'llm.parent-chunk-id': chunk.id
     }));
-    if (session.callbacks?.onError) {
-      session.callbacks.onError(error instanceof Error ? error : new Error('LLM error'));
-    }
-  }
-  
-  return outputs;
+    
+    let fullResponse = '';
+    
+    (async () => {
+      try {
+        for await (const tokenChunk of session.llmEvaluator.evaluateChunk(contextChunk)) {
+          if (tokenChunk.contentType === 'text') {
+            const token = tokenChunk.content as string;
+            fullResponse += token;
+            if (session.callbacks?.onToken) {
+              session.callbacks.onToken(token);
+            }
+          }
+        }
+        
+        const assistantChunk = createTextChunk(fullResponse, 'com.rxcafe.assistant', {
+          'chat.role': 'assistant'
+        });
+        subscriber.next(assistantChunk);
+        
+        if (session.callbacks?.onFinish) {
+          session.callbacks.onFinish(fullResponse);
+        }
+        
+        subscriber.complete();
+      } catch (error) {
+        subscriber.next(createNullChunk('com.rxcafe.error', {
+          'error.message': error instanceof Error ? error.message : 'LLM error',
+          'error.source-chunk-id': chunk.id
+        }));
+        
+        if (session.callbacks?.onError) {
+          session.callbacks.onError(error instanceof Error ? error : new Error('LLM error'));
+        }
+        
+        subscriber.error(error);
+      }
+    })();
+  });
 }
 
 export function getSession(sessionId: string): Session | undefined {
@@ -290,6 +318,10 @@ export function getSession(sessionId: string): Session | undefined {
 }
 
 export function deleteSession(sessionId: string): boolean {
+  const session = sessions.get(sessionId);
+  if (session?.pipelineSubscription) {
+    session.pipelineSubscription.unsubscribe();
+  }
   return sessions.delete(sessionId);
 }
 
@@ -415,7 +447,7 @@ export function addChunkToSession(session: Session, options: AddChunkOptions): C
   );
   
   if (options.emit) {
-    session.inputStream.emit(chunk);
+    session.inputStream.next(chunk);
   } else {
     session.history.push(chunk);
     
@@ -428,7 +460,7 @@ export function addChunkToSession(session: Session, options: AddChunkOptions): C
 }
 
 // =============================================================================
-// Pipeline Evaluators
+// Pipeline Evaluators (kept for backwards compatibility / external use)
 // =============================================================================
 
 export function createRoleAnnotator(role: string): Evaluator {
@@ -544,7 +576,7 @@ export async function processChatMessage(
     'chat.role': 'user'
   });
   
-  session.inputStream.emit(userChunk);
+  session.inputStream.next(userChunk);
 }
 
 export async function abortGeneration(session: Session): Promise<void> {

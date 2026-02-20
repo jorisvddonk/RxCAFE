@@ -456,7 +456,7 @@ async function handleTelegramWebCommand(chatId: number, session: Session, url: s
   
   try {
     const chunk = await fetchWebContent(url);
-    session.inputStream.emit(chunk);
+    session.inputStream.next(chunk);
     
     // Store chunk info for trust buttons
     const isTrusted = chunk.annotations?.['security.trust-level']?.trusted === true;
@@ -660,6 +660,33 @@ async function handleGetHistory(sessionId: string): Promise<Response> {
     chunks: textChunks
   }), {
     headers: { 'Content-Type': 'application/json' }
+  });
+}
+
+async function handleErrorStream(sessionId: string): Promise<Response> {
+  const session = getSession(sessionId);
+  
+  if (!session) {
+    return new Response(JSON.stringify({ error: 'Session not found' }), {
+      status: 404,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+  
+  const { Subject, Observable } = await import('./lib/stream.js');
+  const { observableToStream } = await import('./lib/stream.js');
+  
+  const errorStream = observableToStream(
+    session.errorStream.asObservable(),
+    (err: Error) => `data: ${JSON.stringify({ type: 'error', message: err.message, timestamp: Date.now() })}\n\n`
+  );
+  
+  return new Response(errorStream, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive'
+    }
   });
 }
 
@@ -998,6 +1025,13 @@ const server = serve({
     if (pathname.match(/^\/api\/session\/[^/]+\/history$/) && request.method === 'GET') {
       const sessionId = pathname.split('/')[3];
       const response = await handleGetHistory(sessionId);
+      return addCors(response, corsHeaders);
+    }
+    
+    // Error stream endpoint (SSE)
+    if (pathname.match(/^\/api\/session\/[^/]+\/errors$/) && request.method === 'GET') {
+      const sessionId = pathname.split('/')[3];
+      const response = await handleErrorStream(sessionId);
       return addCors(response, corsHeaders);
     }
     

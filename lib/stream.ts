@@ -1,124 +1,91 @@
 /**
  * RXCAFE Reactive Stream Utilities
  * 
- * Unidirectional stream implementation for chunk processing.
+ * Thin wrapper around RxJS for chunk processing.
  * 
  * ═══════════════════════════════════════════════════════════════════════════════
  *                            STREAM DATA FLOW
  * ═══════════════════════════════════════════════════════════════════════════════
  * 
- *     ┌──────────────────────────────────────────────────────────────────────┐
- *     │                                                                      │
- *     │    emit(chunk)                                                       │
- *     │         │                                                            │
- *     │         ▼                                                            │
- *     │    ┌─────────────┐        pipe()         ┌─────────────┐            │
- *     │    │   Stream A  │ ─────────────────────►│   Stream B  │            │
- *     │    └─────────────┘                       └─────────────┘            │
- *     │         │                                     │                      │
- *     │         │                                     │                      │
- *     │    ┌────┴────┐                           ┌────┴────┐                │
- *     │    │listeners│                           │listeners│                │
- *     │    └─────────┘                           └─────────┘                │
- *     │                                                                      │
- *     └──────────────────────────────────────────────────────────────────────┘
- * 
- * ═══════════════════════════════════════════════════════════════════════════════
- *                              OPERATORS
- * ═══════════════════════════════════════════════════════════════════════════════
- * 
- *   pipe(evaluator)  - Transform chunks through an evaluator function
- *                      Each chunk: evaluator(chunk) → Chunk | Chunk[]
- * 
- *   filter(predicate) - Pass through only chunks matching predicate
- * 
- *   map(transform)    - Transform each chunk (shorthand for pipe)
- * 
- *   subscribe(fn)     - Listen to all emitted chunks
- * 
- *   mergeStreams(A, B, ...) - Combine multiple streams into one
+ *     inputStream (Subject) → operators → outputStream (Subject) → history
+ *                                     │
+ *                                     └── errorStream (Subject) → UI
  * 
  * ═══════════════════════════════════════════════════════════════════════════════
  *                              KEY RULE
  * ═══════════════════════════════════════════════════════════════════════════════
  * 
  *   Data flows DOWN only.
- *   NEVER emit to an upstream stream (prevents infinite loops).
+ *   NEVER call .next() on an upstream Subject (prevents infinite loops).
  * 
  * ═══════════════════════════════════════════════════════════════════════════════
  */
 
-import { Chunk, Evaluator } from './chunk.js';
+import { Subject, Observable, merge, EMPTY, from, type ObservableInput } from 'rxjs';
+import { filter, map, mergeMap, catchError, tap, type OperatorFunction } from 'rxjs/operators';
+import type { Chunk, Evaluator } from './chunk.js';
 
-export class ChunkStream {
-  private listeners: Set<(chunk: Chunk) => void> = new Set();
-  private evaluators: Array<{ evaluator: Evaluator; output: ChunkStream }> = [];
+export { Subject, Observable, merge, EMPTY, from };
+export { filter, map, mergeMap, catchError, tap };
+export type { OperatorFunction };
 
-  subscribe(listener: (chunk: Chunk) => void): () => void {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
-  }
+export type ChunkSubject = Subject<Chunk>;
+export type ChunkObservable = Observable<Chunk>;
 
-  emit(chunk: Chunk): void {
-    for (const listener of this.listeners) {
-      listener(chunk);
-    }
-
-    this.processEvaluators(chunk);
-  }
-
-  private async processEvaluators(chunk: Chunk): Promise<void> {
-    for (const { evaluator, output } of this.evaluators) {
-      try {
-        const result = await evaluator(chunk);
-        if (Array.isArray(result)) {
-          for (const r of result) {
-            output.emit(r);
+export function observableToStream<T>(
+  source: Observable<T>,
+  serialize: (item: T) => string
+): ReadableStream<Uint8Array> {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      const encoder = new TextEncoder();
+      let subscription: ReturnType<typeof source.subscribe>;
+      
+      subscription = source.subscribe({
+        next: item => {
+          try {
+            controller.enqueue(encoder.encode(serialize(item)));
+          } catch (e) {
+            subscription?.unsubscribe();
           }
-        } else {
-          output.emit(result);
+        },
+        error: err => {
+          try {
+            controller.enqueue(encoder.encode(serialize({ type: 'error', error: err.message } as any)));
+          } catch {}
+          controller.close();
+        },
+        complete: () => {
+          controller.close();
         }
-      } catch (error) {
-        console.error('Evaluator error:', error);
-      }
-    }
-  }
-
-  pipe(evaluator: Evaluator): ChunkStream {
-    const output = new ChunkStream();
-    this.evaluators.push({ evaluator, output });
-    return output;
-  }
-
-  filter(predicate: (chunk: Chunk) => boolean): ChunkStream {
-    const output = new ChunkStream();
-    this.subscribe((chunk) => {
-      if (predicate(chunk)) {
-        output.emit(chunk);
-      }
-    });
-    return output;
-  }
-
-  map(transformer: (chunk: Chunk) => Chunk): ChunkStream {
-    const output = new ChunkStream();
-    this.subscribe((chunk) => {
-      output.emit(transformer(chunk));
-    });
-    return output;
-  }
+      });
+      
+      return () => subscription.unsubscribe();
+    },
+    cancel() {}
+  });
 }
 
-export function mergeStreams(...streams: ChunkStream[]): ChunkStream {
-  const output = new ChunkStream();
-  
-  for (const stream of streams) {
-    stream.subscribe((chunk) => {
-      output.emit(chunk);
-    });
-  }
-  
-  return output;
+export function evaluatorToOperator(evaluator: Evaluator): OperatorFunction<Chunk, Chunk> {
+  return mergeMap(chunk => {
+    const result = evaluator(chunk);
+    
+    if (result instanceof Observable) {
+      return result;
+    }
+    
+    if (result instanceof Promise) {
+      return from(result.then(r => Array.isArray(r) ? r : [r]));
+    }
+    
+    if (Array.isArray(result)) {
+      return from(Promise.resolve(result));
+    }
+    
+    return from(Promise.resolve([result]));
+  }) as OperatorFunction<Chunk, Chunk>;
+}
+
+export function mergeObservables(...sources: Observable<Chunk>[]): Observable<Chunk> {
+  return merge(...sources);
 }
