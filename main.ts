@@ -842,6 +842,7 @@ function getFrontendCss(): string {
 
 const server = serve({
   port: PORT,
+  idleTimeout: 255,
   async fetch(request) {
     const url = new URL(request.url);
     const pathname = url.pathname;
