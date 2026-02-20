@@ -22,7 +22,7 @@ import { serve } from 'bun';
 import { readFileSync } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { 
+import {
   createTextChunk,
   type Chunk
 } from './lib/chunk.js';
@@ -32,12 +32,13 @@ import {
   getSession,
   fetchWebContent,
   toggleChunkTrust,
-  setSystemPrompt,
+  addChunkToSession,
   listModels,
   processChatMessage,
   abortGeneration,
   type CoreConfig,
-  type Session
+  type Session,
+  type AddChunkOptions
 } from './core.js';
 import { TelegramBot, TelegramUser, TelegramConfig } from './lib/telegram.js';
 import { TrustDatabase, extractClientToken, maskToken } from './lib/trust.js';
@@ -401,7 +402,7 @@ async function initTelegramBot(): Promise<void> {
       }
       
       if (text.startsWith('/help')) {
-        await telegramBot!.sendMessage(chatId, `*Available Commands:*\n\n/web <URL> - Fetch web content (untrusted by default)\n/system <prompt> - Set system prompt for LLM\n/help - Show this help\n\n*Web Content Trust System:*\nWhen you fetch web content, it's marked as untrusted and won't be used by the LLM until you click the Trust button.`, { parseMode: 'Markdown' });
+        await telegramBot!.sendMessage(chatId, `*Available Commands:*\n\n/web <URL> - Fetch web content (untrusted by default)\n/system <prompt> - Set system prompt for LLM\n/help - Show this help\n\n*Web Content Trust System:*\nWhen you fetch web content, it's marked as untrusted and won't be used by the LLM until you trust it.`, { parseMode: 'Markdown' });
         return;
       }
       
@@ -479,7 +480,14 @@ async function handleTelegramWebCommand(chatId: number, session: Session, url: s
 function handleTelegramSystemCommand(chatId: number, session: Session, prompt: string): void {
   if (!telegramBot) return;
   
-  setSystemPrompt(session, prompt);
+  addChunkToSession(session, {
+    content: prompt,
+    producer: 'com.rxcafe.system-prompt',
+    annotations: {
+      'chat.role': 'system',
+      'system.prompt': true
+    }
+  });
   telegramBot.sendMessage(chatId, `✅ System prompt set:\n\n\`${prompt.substring(0, 500)}${prompt.length > 500 ? '...' : ''}\``, { parseMode: 'Markdown' });
 }
 
@@ -666,8 +674,14 @@ async function handleFetchWeb(sessionId: string, url: string): Promise<Response>
   }
   
   try {
-    const chunk = await fetchWebContent(url);
-    session.inputStream.emit(chunk);
+    const fetchedChunk = await fetchWebContent(url);
+    
+    const chunk = addChunkToSession(session, {
+      content: fetchedChunk.content as string,
+      producer: fetchedChunk.producer,
+      annotations: fetchedChunk.annotations,
+      emit: true
+    });
     
     return new Response(JSON.stringify({
       success: true,
@@ -687,7 +701,7 @@ async function handleFetchWeb(sessionId: string, url: string): Promise<Response>
   }
 }
 
-async function handleSetSystemPrompt(sessionId: string, prompt: string): Promise<Response> {
+async function handleAddChunk(sessionId: string, options: AddChunkOptions): Promise<Response> {
   const session = getSession(sessionId);
   
   if (!session) {
@@ -697,12 +711,11 @@ async function handleSetSystemPrompt(sessionId: string, prompt: string): Promise
     });
   }
   
-  const chunk = setSystemPrompt(session, prompt || null);
+  const chunk = addChunkToSession(session, options);
   
   return new Response(JSON.stringify({
     success: true,
-    chunk: chunk,
-    message: prompt ? 'System prompt set' : 'System prompt cleared'
+    chunk: chunk
   }), {
     headers: { 'Content-Type': 'application/json' }
   });
@@ -753,7 +766,14 @@ async function handleChatStream(
   // Handle /system command
   if (message.startsWith('/system ')) {
     const prompt = message.slice(8).trim();
-    const chunk = setSystemPrompt(session, prompt);
+    const chunk = addChunkToSession(session, {
+      content: prompt,
+      producer: 'com.rxcafe.system-prompt',
+      annotations: {
+        'chat.role': 'system',
+        'system.prompt': true
+      }
+    });
     return new Response(JSON.stringify({
       type: 'system',
       chunk: chunk,
@@ -998,13 +1018,23 @@ const server = serve({
       return addCors(response, corsHeaders);
     }
     
-    // System prompt endpoint
-    if (pathname.match(/^\/api\/session\/[^/]+\/system$/) && request.method === 'POST') {
+    // Add chunk endpoint
+    if (pathname.match(/^\/api\/session\/[^/]+\/chunk$/) && request.method === 'POST') {
       const sessionId = pathname.split('/')[3];
       const body = await request.json();
-      const prompt = body.prompt;
       
-      const response = await handleSetSystemPrompt(sessionId, prompt);
+      if (!body.content || typeof body.content !== 'string') {
+        return new Response(JSON.stringify({ error: 'Content required' }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json', ...corsHeaders }
+        });
+      }
+      
+      const response = await handleAddChunk(sessionId, {
+        content: body.content,
+        producer: body.producer,
+        annotations: body.annotations
+      });
       return addCors(response, corsHeaders);
     }
     

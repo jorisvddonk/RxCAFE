@@ -321,7 +321,7 @@ class RXCafeChat {
                 this.chunkElements.clear();
                 this.rawChunks = [];
                 this.addSystemMessage(`Session created with ${this.backend}${this.model ? ' (' + this.model + ')' : ''}`);
-                this.addSystemMessage('Commands: /web URL | /system prompt');
+                this.addSystemMessage('Commands: /web URL | /system prompt | /addchunk JSON');
                 this.hideBackendModal();
                 this.messageInput.focus();
                 this.updateInspector();
@@ -354,6 +354,15 @@ class RXCafeChat {
         if (message.startsWith('/system ')) {
             const prompt = message.slice(8).trim();
             await this.handleSystemCommand(prompt);
+            this.messageInput.value = '';
+            this.messageInput.style.height = 'auto';
+            this.messageInput.focus();
+            return;
+        }
+        
+        if (message.startsWith('/addchunk ')) {
+            const args = message.slice(10).trim();
+            await this.handleAddChunkCommand(args);
             this.messageInput.value = '';
             this.messageInput.style.height = 'auto';
             this.messageInput.focus();
@@ -486,10 +495,17 @@ class RXCafeChat {
         }
         
         try {
-            const response = await fetch(this.apiUrl(`/api/session/${this.sessionId}/system`), {
+            const response = await fetch(this.apiUrl(`/api/session/${this.sessionId}/chunk`), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ prompt })
+                body: JSON.stringify({
+                    content: prompt,
+                    producer: 'com.rxcafe.system-prompt',
+                    annotations: {
+                        'chat.role': 'system',
+                        'system.prompt': true
+                    }
+                })
             });
             
             const data = await response.json();
@@ -502,6 +518,38 @@ class RXCafeChat {
         } catch (error) {
             console.error('Failed to set system prompt:', error);
             this.showError('Failed to set system prompt. Is the server running?');
+        }
+    }
+    
+    async handleAddChunkCommand(args) {
+        try {
+            const parsed = JSON.parse(args);
+            
+            if (!parsed.content) {
+                this.showError('Chunk must have content field');
+                return;
+            }
+            
+            const response = await fetch(this.apiUrl(`/api/session/${this.sessionId}/chunk`), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    content: parsed.content,
+                    producer: parsed.producer || 'com.rxcafe.user',
+                    annotations: parsed.annotations || {}
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (data.success) {
+                this.addRawChunk(data.chunk);
+                this.addSystemMessage(`Chunk added: ${data.chunk.id}`);
+            } else {
+                this.showError(data.error || 'Failed to add chunk');
+            }
+        } catch (error) {
+            this.showError('Usage: /addchunk {"content":"...", "annotations":{...}}');
         }
     }
     

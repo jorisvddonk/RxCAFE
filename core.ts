@@ -400,15 +400,30 @@ export function toggleChunkTrust(
   }
 }
 
-export function setSystemPrompt(session: Session, prompt: string | null): Chunk {
-  session.systemPrompt = prompt;
+export interface AddChunkOptions {
+  content: string;
+  producer?: string;
+  annotations?: Record<string, any>;
+  emit?: boolean;
+}
+
+export function addChunkToSession(session: Session, options: AddChunkOptions): Chunk {
+  const chunk = createTextChunk(
+    options.content,
+    options.producer || 'com.rxcafe.user',
+    options.annotations
+  );
   
-  const chunk = createTextChunk(prompt || '', 'com.rxcafe.system-prompt', {
-    'chat.role': 'system',
-    'system.prompt': true
-  });
+  if (options.emit) {
+    session.inputStream.emit(chunk);
+  } else {
+    session.history.push(chunk);
+    
+    if (options.annotations?.['chat.role'] === 'system') {
+      session.systemPrompt = options.content;
+    }
+  }
   
-  session.history.push(chunk);
   return chunk;
 }
 
