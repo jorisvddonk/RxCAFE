@@ -6,7 +6,9 @@
   "type": "module",
   "scripts": {
     "start": "bun run main.ts",
-    "dev": "bun --hot run main.ts"
+    "dev": "bun --hot run main.ts",
+    "cli": "bun run cli.ts",
+    "test": "bun run test.ts"
   },
   "dependencies": {
     "rxjs": "^7.8.1"
