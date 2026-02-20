@@ -448,7 +448,7 @@ async function handleTelegramWebCommand(chatId: number, session: Session, url: s
   
   try {
     const chunk = await fetchWebContent(url);
-    session.stream.emit(chunk);
+    session.inputStream.emit(chunk);
     
     // Store chunk info for trust buttons
     const isTrusted = chunk.annotations?.['security.trust-level']?.trusted === true;
@@ -653,7 +653,7 @@ async function handleFetchWeb(sessionId: string, url: string): Promise<Response>
   
   try {
     const chunk = await fetchWebContent(url);
-    session.stream.emit(chunk);
+    session.inputStream.emit(chunk);
     
     return new Response(JSON.stringify({
       success: true,

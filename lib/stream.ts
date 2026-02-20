@@ -1,30 +1,67 @@
 /**
  * RXCAFE Reactive Stream Utilities
- * Simple stream implementation for chunk processing
+ * 
+ * Unidirectional stream implementation for chunk processing.
+ * 
+ * ═══════════════════════════════════════════════════════════════════════════════
+ *                            STREAM DATA FLOW
+ * ═══════════════════════════════════════════════════════════════════════════════
+ * 
+ *     ┌──────────────────────────────────────────────────────────────────────┐
+ *     │                                                                      │
+ *     │    emit(chunk)                                                       │
+ *     │         │                                                            │
+ *     │         ▼                                                            │
+ *     │    ┌─────────────┐        pipe()         ┌─────────────┐            │
+ *     │    │   Stream A  │ ─────────────────────►│   Stream B  │            │
+ *     │    └─────────────┘                       └─────────────┘            │
+ *     │         │                                     │                      │
+ *     │         │                                     │                      │
+ *     │    ┌────┴────┐                           ┌────┴────┐                │
+ *     │    │listeners│                           │listeners│                │
+ *     │    └─────────┘                           └─────────┘                │
+ *     │                                                                      │
+ *     └──────────────────────────────────────────────────────────────────────┘
+ * 
+ * ═══════════════════════════════════════════════════════════════════════════════
+ *                              OPERATORS
+ * ═══════════════════════════════════════════════════════════════════════════════
+ * 
+ *   pipe(evaluator)  - Transform chunks through an evaluator function
+ *                      Each chunk: evaluator(chunk) → Chunk | Chunk[]
+ * 
+ *   filter(predicate) - Pass through only chunks matching predicate
+ * 
+ *   map(transform)    - Transform each chunk (shorthand for pipe)
+ * 
+ *   subscribe(fn)     - Listen to all emitted chunks
+ * 
+ *   mergeStreams(A, B, ...) - Combine multiple streams into one
+ * 
+ * ═══════════════════════════════════════════════════════════════════════════════
+ *                              KEY RULE
+ * ═══════════════════════════════════════════════════════════════════════════════
+ * 
+ *   Data flows DOWN only.
+ *   NEVER emit to an upstream stream (prevents infinite loops).
+ * 
+ * ═══════════════════════════════════════════════════════════════════════════════
  */
 
 import { Chunk, Evaluator } from './chunk.js';
 
 export class ChunkStream {
-  private chunks: Chunk[] = [];
   private listeners: Set<(chunk: Chunk) => void> = new Set();
   private evaluators: Array<{ evaluator: Evaluator; output: ChunkStream }> = [];
 
   subscribe(listener: (chunk: Chunk) => void): () => void {
     this.listeners.add(listener);
-    
-    for (const chunk of this.chunks) {
-      listener(chunk);
-    }
-    
     return () => {
       this.listeners.delete(listener);
     };
   }
 
   emit(chunk: Chunk): void {
-    this.chunks.push(chunk);
-    
     for (const listener of this.listeners) {
       listener(chunk);
     }
@@ -71,10 +108,6 @@ export class ChunkStream {
       output.emit(transformer(chunk));
     });
     return output;
-  }
-
-  getHistory(): Chunk[] {
-    return [...this.chunks];
   }
 }
 

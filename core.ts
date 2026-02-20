@@ -1,7 +1,61 @@
 /**
  * RXCAFE Core Business Logic
- * Contains session management, LLM evaluators, security, and stream processing
- * No frontend, backend server, or Telegram-specific code
+ * 
+ * Reactive stream-based chat processing with unidirectional data flow.
+ * 
+ * ═══════════════════════════════════════════════════════════════════════════════
+ *                            STREAM ARCHITECTURE
+ * ═══════════════════════════════════════════════════════════════════════════════
+ * 
+ * Unidirectional data flow prevents infinite loops:
+ * 
+ *     inputStream → pipeline → outputStream → history
+ *          │                         ↑
+ *          │                         │
+ *          └── NEVER emit back ──────┘
+ * 
+ * Pipeline (built once at session creation):
+ * 
+ *     inputStream
+ *         │
+ *         ▼
+ *     textOnlyStream (type filter)
+ *         │
+ *         ▼
+ *     annotatedStream (role annotator)
+ *         │
+ *         ▼
+ *     trustedStream (trust filter)
+ *         │
+ *         ▼
+ *     processWithLLM → llmStream
+ *         │
+ *         ▼
+ *     combinedStream (merge: annotatedStream + llmStream)
+ *         │
+ *         ▼
+ *     outputStream → history
+ * 
+ * ═══════════════════════════════════════════════════════════════════════════════
+ *                              KEY PRINCIPLES
+ * ═══════════════════════════════════════════════════════════════════════════════
+ * 
+ * 1. UNIDIRECTIONAL FLOW
+ *    LLM responses flow through llmStream → outputStream, never back to inputStream
+ * 
+ * 2. PIPELINE BUILT ONCE
+ *    Pipeline is constructed at session creation, not per message
+ *    Avoids accumulating evaluators on each request
+ * 
+ * 3. CALLBACKS STORED IN SESSION
+ *    Each HTTP request updates session.callbacks
+ *    LLM reads from session.callbacks (not closure)
+ * 
+ * 4. ONLY FINAL ASSISTANT CHUNK TO HISTORY
+ *    Individual tokens streamed via onToken callback
+ *    Complete response chunked to llmStream → outputStream → history
+ * 
+ * ═══════════════════════════════════════════════════════════════════════════════
  */
 
 import { 
@@ -57,9 +111,7 @@ export function createEvaluator(
     const ollama = new OllamaEvaluator(config.ollamaBaseUrl, model || config.ollamaModel);
     return {
       evaluateChunk: ollama.evaluateChunk.bind(ollama),
-      abort: async () => {
-        // Ollama doesn't have a direct abort API
-      }
+      abort: async () => {}
     };
   } else {
     const kobold = new KoboldEvaluator(config.koboldBaseUrl);
@@ -78,13 +130,15 @@ export function createEvaluator(
 
 export interface Session {
   id: string;
-  stream: ChunkStream;
+  inputStream: ChunkStream;
+  outputStream: ChunkStream;
   history: Chunk[];
   llmEvaluator: LLMEvaluator;
   backend: LLMBackend;
   model?: string;
   abortController: AbortController | null;
   trustedChunks: Set<string>;
+  callbacks: ChatCallbacks | null;
 }
 
 const sessions = new Map<string, Session>();
@@ -97,37 +151,136 @@ export function createSession(
   const id = `session-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
   const useBackend = backend || config.backend;
   
-  // Create the main input stream - this is where all user chunks flow in
   const inputStream = new ChunkStream();
+  const outputStream = new ChunkStream();
   
-  // Create LLM evaluator based on selected backend
   const llmEvaluator = createEvaluator(useBackend, config, model);
   
   const session: Session = {
     id,
-    stream: inputStream,
+    inputStream,
+    outputStream,
     history: [],
     llmEvaluator,
     backend: useBackend,
     model,
     abortController: null,
-    trustedChunks: new Set()
+    trustedChunks: new Set(),
+    callbacks: null
   };
   
-  // Archive all chunks to history (avoid duplicates by checking chunk ID)
-  inputStream.subscribe((chunk) => {
+  outputStream.subscribe((chunk) => {
     const existingIndex = session.history.findIndex(c => c.id === chunk.id);
     if (existingIndex !== -1) {
-      // Update existing chunk (e.g., when trust status changes)
       session.history[existingIndex] = chunk;
     } else {
-      // Add new chunk
       session.history.push(chunk);
     }
   });
   
+  const textOnlyStream = inputStream.pipe(createTypeFilter(['text']));
+  const annotatedStream = textOnlyStream.pipe(createRoleAnnotator('user'));
+  const trustedStream = annotatedStream.pipe(createTrustFilter());
+  
+  const llmStream = new ChunkStream();
+  
+  trustedStream.pipe(
+    (chunk: Chunk) => processWithLLM(chunk, session, config.tracing)
+  ).pipe((chunk: Chunk) => {
+    llmStream.emit(chunk);
+    return chunk;
+  });
+  
+  const combinedStream = mergeStreams(annotatedStream, llmStream);
+  
+  combinedStream.subscribe((chunk: Chunk) => {
+    let finalChunk = chunk;
+    if (chunk.contentType === 'text' && 
+        (chunk.producer === 'com.rxcafe.kobold-evaluator' || 
+         chunk.producer === 'com.rxcafe.ollama-evaluator' ||
+         chunk.producer === 'com.rxcafe.assistant')) {
+      finalChunk = annotateChunk(chunk, 'chat.role', 'assistant');
+    }
+    session.outputStream.emit(finalChunk);
+  });
+  
   sessions.set(id, session);
   return session;
+}
+
+async function processWithLLM(chunk: Chunk, session: Session, tracing: boolean): Promise<Chunk | Chunk[]> {
+  if (chunk.contentType !== 'text') {
+    return chunk;
+  }
+  
+  if (chunk.annotations['chat.role'] !== 'user') {
+    return chunk;
+  }
+  
+  const context = buildConversationContext(session.history, chunk.id);
+  const currentMessage = chunk.content as string;
+  
+  const prompt = context 
+    ? `${context}\n\nUser: ${currentMessage}\nAssistant:`
+    : `User: ${currentMessage}\nAssistant:`;
+  
+  if (tracing) {
+    console.log('\n═══════════════════════════════════════════════════════════');
+    console.log('RXCAFE_TRACE: LLM Context');
+    console.log('═══════════════════════════════════════════════════════════');
+    console.log(`Chunk ID: ${chunk.id}`);
+    console.log(`Context Length: ${context.length} chars`);
+    console.log(`Total Prompt Length: ${prompt.length} chars`);
+    console.log('\n--- FULL CONTEXT SENT TO LLM ---');
+    console.log(prompt);
+    console.log('--- END CONTEXT ---\n');
+  }
+  
+  const contextChunk = createTextChunk(prompt, chunk.producer, {
+    ...chunk.annotations,
+    'llm.context-length': context.length,
+    'llm.full-prompt': true
+  });
+  
+  const outputs: Chunk[] = [];
+  let fullResponse = '';
+  
+  outputs.push(createNullChunk('com.rxcafe.llm', {
+    'llm.generation-started': true,
+    'llm.backend': session.backend,
+    'llm.parent-chunk-id': chunk.id
+  }));
+  
+  try {
+    for await (const tokenChunk of session.llmEvaluator.evaluateChunk(contextChunk)) {
+      if (tokenChunk.contentType === 'text') {
+        const token = tokenChunk.content as string;
+        fullResponse += token;
+        if (session.callbacks?.onToken) {
+          session.callbacks.onToken(token);
+        }
+      }
+    }
+    
+    const assistantChunk = createTextChunk(fullResponse, 'com.rxcafe.assistant', {
+      'chat.role': 'assistant'
+    });
+    outputs.push(assistantChunk);
+    
+    if (session.callbacks?.onFinish) {
+      session.callbacks.onFinish(fullResponse);
+    }
+  } catch (error) {
+    outputs.push(createNullChunk('com.rxcafe.error', {
+      'error.message': error instanceof Error ? error.message : 'LLM error',
+      'error.source-chunk-id': chunk.id
+    }));
+    if (session.callbacks?.onError) {
+      session.callbacks.onError(error instanceof Error ? error : new Error('LLM error'));
+    }
+  }
+  
+  return outputs;
 }
 
 export function getSession(sessionId: string): Session | undefined {
@@ -146,9 +299,6 @@ export function listSessions(): string[] {
 // Security and Trust Management
 // =============================================================================
 
-/**
- * Mark a chunk as untrusted (web content, external sources)
- */
 export function markUntrusted(chunk: Chunk, source: string): Chunk {
   return annotateChunk(chunk, 'security.trust-level', {
     trusted: false,
@@ -157,9 +307,6 @@ export function markUntrusted(chunk: Chunk, source: string): Chunk {
   });
 }
 
-/**
- * Mark a chunk as trusted
- */
 export function markTrusted(chunk: Chunk): Chunk {
   return annotateChunk(chunk, 'security.trust-level', {
     trusted: true,
@@ -168,16 +315,10 @@ export function markTrusted(chunk: Chunk): Chunk {
   });
 }
 
-/**
- * Check if a chunk is trusted
- */
 export function isTrusted(chunk: Chunk): boolean {
   return chunk.annotations['security.trust-level']?.trusted === true;
 }
 
-/**
- * Fetch web content and create an untrusted chunk
- */
 export async function fetchWebContent(url: string): Promise<Chunk> {
   try {
     const response = await fetch(url, {
@@ -193,16 +334,14 @@ export async function fetchWebContent(url: string): Promise<Chunk> {
     const contentType = response.headers.get('content-type') || 'text/plain';
     
     if (contentType.includes('text/html')) {
-      // For HTML, we should extract text content
       const html = await response.text();
-      // Simple HTML tag stripping (in production, use a proper HTML parser)
       const text = html
         .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
         .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
         .replace(/<[^>]+>/g, ' ')
         .replace(/\s+/g, ' ')
         .trim()
-        .slice(0, 10000); // Limit to 10k chars
+        .slice(0, 10000);
       
       const chunk = createTextChunk(text, 'com.rxcafe.web-fetch', {
         'web.source-url': url,
@@ -212,9 +351,8 @@ export async function fetchWebContent(url: string): Promise<Chunk> {
       
       return markUntrusted(chunk, `web:${url}`);
     } else {
-      // For other content types, store as text
-      const text = await response.text();
-      const chunk = createTextChunk(text.slice(0, 10000), 'com.rxcafe.web-fetch', {
+      const text = await response.text().then(t => t.slice(0, 10000));
+      const chunk = createTextChunk(text, 'com.rxcafe.web-fetch', {
         'web.source-url': url,
         'web.content-type': contentType,
         'web.fetch-time': Date.now()
@@ -235,15 +373,11 @@ export async function fetchWebContent(url: string): Promise<Chunk> {
   }
 }
 
-/**
- * Toggle trust status for a chunk in a session
- */
 export function toggleChunkTrust(
   session: Session, 
   chunkId: string, 
   trusted: boolean
 ): Chunk | null {
-  // Find the chunk in history
   const chunkIndex = session.history.findIndex(c => c.id === chunkId);
   if (chunkIndex === -1) {
     return null;
@@ -251,34 +385,23 @@ export function toggleChunkTrust(
   
   const chunk = session.history[chunkIndex];
   
-  // Update trust status
   if (trusted) {
     session.trustedChunks.add(chunkId);
     const trustedChunk = markTrusted(chunk);
     session.history[chunkIndex] = trustedChunk;
-    
-    // Re-emit the chunk to the stream so downstream evaluators see the update
-    session.stream.emit(trustedChunk);
-    
     return trustedChunk;
   } else {
     session.trustedChunks.delete(chunkId);
     const untrustedChunk = markUntrusted(chunk, chunk.annotations['security.trust-level']?.source || 'manual');
     session.history[chunkIndex] = untrustedChunk;
-    session.stream.emit(untrustedChunk);
-    
     return untrustedChunk;
   }
 }
 
 // =============================================================================
-// RXCAFE Stream Processing Pipeline
+// Pipeline Evaluators
 // =============================================================================
 
-/**
- * Create an evaluator that annotates chunks with their chat role
- * Pure transformer - adds metadata without changing content
- */
 export function createRoleAnnotator(role: string): Evaluator {
   return (chunk: Chunk) => {
     if (chunk.annotations['chat.role']) {
@@ -288,10 +411,6 @@ export function createRoleAnnotator(role: string): Evaluator {
   };
 }
 
-/**
- * Create an evaluator that filters chunks by content type
- * Returns null chunks for non-matching items (which get filtered downstream)
- */
 export function createTypeFilter(allowedTypes: string[]): Evaluator {
   return (chunk: Chunk) => {
     if (!allowedTypes.includes(chunk.contentType)) {
@@ -304,20 +423,8 @@ export function createTypeFilter(allowedTypes: string[]): Evaluator {
   };
 }
 
-/**
- * Create an evaluator that filters out untrusted chunks for LLM context
- * Only trusted chunks flow through to the LLM
- */
 export function createTrustFilter(): Evaluator {
   return (chunk: Chunk) => {
-    if (chunk.annotations['chat.role'] === 'assistant') {
-      return createNullChunk('com.rxcafe.security-filter', {
-        'filter.rejected': true,
-        'filter.reason': 'Assistant response - not triggering LLM',
-        'filter.source-chunk-id': chunk.id
-      });
-    }
-    
     const trustLevel = chunk.annotations['security.trust-level'];
     
     if (trustLevel && trustLevel.trusted === false) {
@@ -332,26 +439,17 @@ export function createTrustFilter(): Evaluator {
   };
 }
 
-/**
- * Build conversation context from session history
- * Only includes trusted chunks (user messages, assistant responses, trusted web content)
- * Excludes the current chunk (which will be appended separately)
- */
 export function buildConversationContext(history: Chunk[], excludeChunkId?: string): string {
   const contextParts: string[] = [];
   
   for (const chunk of history) {
-    // Skip the current chunk being processed
     if (chunk.id === excludeChunkId) continue;
-    
-    // Skip non-text chunks
     if (chunk.contentType !== 'text') continue;
     
     const role = chunk.annotations['chat.role'];
     const trustLevel = chunk.annotations['security.trust-level'];
     const isChunkTrusted = !trustLevel || trustLevel.trusted === true;
     
-    // Skip untrusted content
     if (!isChunkTrusted) continue;
     
     const content = chunk.content as string;
@@ -361,173 +459,12 @@ export function buildConversationContext(history: Chunk[], excludeChunkId?: stri
     } else if (role === 'assistant') {
       contextParts.push(`Assistant: ${content}`);
     } else if (chunk.producer === 'com.rxcafe.web-fetch' || chunk.annotations['web.source-url']) {
-      // Web content that has been trusted
       const url = chunk.annotations['web.source-url'] || 'unknown';
       contextParts.push(`[Web content from ${url}]: ${content}`);
     }
   }
   
   return contextParts.join('\n\n');
-}
-
-/**
- * Create an evaluator that wraps the LLM evaluator
- * This demonstrates flatMap pattern - one input chunk generates multiple output chunks
- * Now includes full conversation context from trusted chunks
- */
-export function createLLMStreamEvaluator(
-  llmEvaluator: LLMEvaluator,
-  backend: LLMBackend,
-  sessionHistory: Chunk[],
-  onToken: (token: string) => void,
-  onFinish: () => void,
-  abortSignal: AbortSignal,
-  tracing: boolean = false
-): Evaluator {
-  return async (chunk: Chunk) => {
-    // Only process text chunks from users
-    if (chunk.contentType !== 'text') {
-      return chunk;
-    }
-    
-    if (chunk.annotations['chat.role'] !== 'user') {
-      return chunk;
-    }
-    
-    // Build full conversation context including trusted web content
-    // Exclude current chunk since we'll append it separately
-    const context = buildConversationContext(sessionHistory, chunk.id);
-    const currentMessage = chunk.content as string;
-    
-    // Create prompt with full context
-    const prompt = context 
-      ? `${context}\n\nUser: ${currentMessage}\nAssistant:`
-      : `User: ${currentMessage}\nAssistant:`;
-    
-    // RXCAFE_TRACE: Log the context being sent to LLM
-    if (tracing) {
-      console.log('\n═══════════════════════════════════════════════════════════');
-      console.log('RXCAFE_TRACE: LLM Context');
-      console.log('═══════════════════════════════════════════════════════════');
-      console.log(`Chunk ID: ${chunk.id}`);
-      console.log(`Producer: ${chunk.producer}`);
-      console.log(`Context Length: ${context.length} chars`);
-      console.log(`Current Message Length: ${currentMessage.length} chars`);
-      console.log(`Total Prompt Length: ${prompt.length} chars`);
-      console.log('\n--- FULL CONTEXT SENT TO LLM ---');
-      console.log(prompt);
-      console.log('--- END CONTEXT ---\n');
-      
-      console.log('Trusted chunks in history:');
-      let trustedCount = 0;
-      for (const h of sessionHistory) {
-        const trust = h.annotations['security.trust-level'];
-        if (h.contentType === 'text' && (!trust || trust.trusted === true)) {
-          trustedCount++;
-          const role = h.annotations['chat.role'] || h.producer;
-          console.log(`  - ${role}: ${(h.content as string).substring(0, 50)}...`);
-        }
-      }
-      console.log(`Total trusted chunks: ${trustedCount}`);
-      console.log('═══════════════════════════════════════════════════════════\n');
-    }
-    
-    // Create a context chunk with the full prompt
-    const contextChunk = createTextChunk(prompt, chunk.producer, {
-      ...chunk.annotations,
-      'llm.context-length': context.length,
-      'llm.full-prompt': true
-    });
-    
-    // Use flatMap semantics: one input chunk generates multiple output chunks
-    const outputs: Chunk[] = [];
-    
-    // Emit marker that generation started
-    outputs.push(createNullChunk('com.rxcafe.llm', {
-      'llm.generation-started': true,
-      'llm.backend': backend,
-      'llm.parent-chunk-id': chunk.id
-    }));
-    
-    try {
-      // Stream tokens from LLM - each token becomes its own chunk
-      for await (const tokenChunk of llmEvaluator.evaluateChunk(contextChunk)) {
-        if (abortSignal.aborted) {
-          break;
-        }
-        
-        outputs.push(tokenChunk);
-        
-        // Callback for real-time streaming
-        if (tokenChunk.contentType === 'text') {
-          onToken(tokenChunk.content as string);
-        }
-      }
-      
-      onFinish();
-    } catch (error) {
-      outputs.push(createNullChunk('com.rxcafe.error', {
-        'error.message': error instanceof Error ? error.message : 'LLM error',
-        'error.source-chunk-id': chunk.id
-      }));
-    }
-    
-    return outputs;
-  };
-}
-
-/**
- * Build a complete chat processing pipeline using stream composition
- * 
- * Pipeline: Input -> [Filter] -> [Annotate] -> [Security Filter] -> [flatMap LLM] -> Output
- */
-export function buildChatPipeline(
-  inputStream: ChunkStream,
-  llmEvaluator: LLMEvaluator,
-  backend: LLMBackend,
-  sessionHistory: Chunk[],
-  onToken: (token: string) => void,
-  onFinish: () => void,
-  abortSignal: AbortSignal,
-  tracing: boolean = false
-): ChunkStream {
-  // Step 1: Filter to only allow text chunks
-  const textOnlyStream = inputStream.pipe(createTypeFilter(['text']));
-  
-  // Step 2: Annotate user chunks
-  const annotatedStream = textOnlyStream.pipe(createRoleAnnotator('user'));
-  
-  // Step 3: SECURITY FILTER - Only trusted chunks flow to LLM
-  // This implements the RXCAFE security pattern from section 4.3
-  const trustedStream = annotatedStream.pipe(createTrustFilter());
-  
-  // Step 4: Branch stream - trusted user messages go to LLM
-  const llmStream = new ChunkStream();
-  
-  // Set up the LLM evaluator on the trusted stream with full history
-  trustedStream.pipe(
-    createLLMStreamEvaluator(llmEvaluator, backend, sessionHistory, onToken, onFinish, abortSignal, tracing)
-  ).pipe((chunk: Chunk) => {
-    llmStream.emit(chunk);
-    return chunk;
-  });
-  
-  // Step 5: Merge streams - combine all input with LLM responses
-  // Note: We merge from annotatedStream (all chunks) not just trusted ones
-  // This way untrusted chunks still appear in UI but don't go to LLM
-  const combinedStream = mergeStreams(annotatedStream, llmStream);
-  
-  // Step 6: Final transformation - annotate assistant responses
-  const outputStream = combinedStream.map((chunk: Chunk) => {
-    if (chunk.contentType === 'text' && 
-        (chunk.producer === 'com.rxcafe.kobold-evaluator' || 
-         chunk.producer === 'com.rxcafe.ollama-evaluator')) {
-      return annotateChunk(chunk, 'chat.role', 'assistant');
-    }
-    return chunk;
-  });
-  
-  return outputStream;
 }
 
 // =============================================================================
@@ -566,44 +503,15 @@ export async function processChatMessage(
   callbacks: ChatCallbacks,
   config: CoreConfig
 ): Promise<void> {
-  // Create abort controller for this generation
   const abortController = new AbortController();
   session.abortController = abortController;
+  session.callbacks = callbacks;
   
-  let fullResponse = '';
-  
-  // Build processing pipeline
-  const outputStream = buildChatPipeline(
-    session.stream,
-    session.llmEvaluator,
-    session.backend,
-    session.history,
-    (token: string) => {
-      fullResponse += token;
-      callbacks.onToken(token);
-    },
-    () => {
-      // Create final assistant chunk with complete response
-      const assistantChunk = createTextChunk(fullResponse, 'com.rxcafe.assistant', {
-        'chat.role': 'assistant'
-      });
-      session.stream.emit(assistantChunk);
-      callbacks.onFinish(fullResponse);
-    },
-    abortController.signal,
-    config.tracing
-  );
-  
-  // Subscribe to pipeline output
-  outputStream.subscribe(() => {
-    // Pipeline is running
-  });
-  
-  // Emit user message to start the pipeline
   const userChunk = createTextChunk(message, 'com.rxcafe.user', {
     'chat.role': 'user'
   });
-  session.stream.emit(userChunk);
+  
+  session.inputStream.emit(userChunk);
 }
 
 export async function abortGeneration(session: Session): Promise<void> {
