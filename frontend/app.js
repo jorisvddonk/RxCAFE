@@ -57,8 +57,10 @@ class RXCafeChat {
         this.currentMessageEl = null;
         this.currentContent = '';
         this.chunkElements = new Map(); // Map chunk IDs to DOM elements
+        this.rawChunks = []; // Store raw chunk data for inspector
         this.contextMenuChunkId = null;
         this.token = this.getToken();
+        this.inspectorVisible = false;
         
         this.init();
     }
@@ -112,6 +114,14 @@ class RXCafeChat {
         this.contextTrust = document.getElementById('context-trust');
         this.contextUntrust = document.getElementById('context-untrust');
         this.contextCopy = document.getElementById('context-copy');
+        
+        // Inspector elements
+        this.inspectorPanel = document.getElementById('inspector-panel');
+        this.inspectorToggleBtn = document.getElementById('inspector-toggle-btn');
+        this.inspectorCloseBtn = document.getElementById('inspector-close-btn');
+        this.inspectorSession = document.getElementById('inspector-session');
+        this.inspectorChunkCount = document.getElementById('inspector-chunk-count');
+        this.inspectorChunks = document.getElementById('inspector-chunks');
     }
     
     bindEvents() {
@@ -143,6 +153,10 @@ class RXCafeChat {
         this.contextTrust.addEventListener('click', () => this.toggleTrust(true));
         this.contextUntrust.addEventListener('click', () => this.toggleTrust(false));
         this.contextCopy.addEventListener('click', () => this.copyChunkContent());
+        
+        // Inspector events
+        this.inspectorToggleBtn.addEventListener('click', () => this.toggleInspector());
+        this.inspectorCloseBtn.addEventListener('click', () => this.hideInspector());
     }
     
     hideContextMenuOnClick() {
@@ -198,6 +212,19 @@ class RXCafeChat {
                     if (badge) {
                         badge.textContent = trusted ? 'Trusted' : 'Untrusted';
                         badge.className = `trust-badge ${trusted ? 'trusted' : 'untrusted'}`;
+                    }
+                }
+                
+                const rawChunk = this.rawChunks.find(c => c.id === this.contextMenuChunkId);
+                if (rawChunk) {
+                    rawChunk.annotations = rawChunk.annotations || {};
+                    rawChunk.annotations['security.trust-level'] = {
+                        trusted: trusted,
+                        source: rawChunk.annotations['security.trust-level']?.source || 'manual',
+                        requiresReview: !trusted
+                    };
+                    if (this.inspectorVisible) {
+                        this.updateInspector();
                     }
                 }
             }
@@ -292,10 +319,12 @@ class RXCafeChat {
                 this.sendBtn.disabled = false;
                 this.messagesEl.innerHTML = '';
                 this.chunkElements.clear();
+                this.rawChunks = [];
                 this.addSystemMessage(`Session created with ${this.backend}${this.model ? ' (' + this.model + ')' : ''}`);
                 this.addSystemMessage('Use /web URL to fetch web content (untrusted by default)');
                 this.hideBackendModal();
                 this.messageInput.focus();
+                this.updateInspector();
             }
         } catch (error) {
             console.error('Failed to create session:', error);
@@ -387,6 +416,16 @@ class RXCafeChat {
         } finally {
             this.isGenerating = false;
             this.currentMessageEl.classList.remove('streaming');
+            if (this.currentContent && this.sessionId) {
+                this.addRawChunk({
+                    id: `assistant-${Date.now()}`,
+                    timestamp: Date.now(),
+                    contentType: 'text',
+                    content: this.currentContent,
+                    producer: 'com.rxcafe.assistant',
+                    annotations: { 'chat.role': 'assistant' }
+                });
+            }
             this.currentMessageEl = null;
             this.currentContent = '';
             this.updateUIState();
@@ -432,6 +471,8 @@ class RXCafeChat {
     }
     
     addWebChunk(chunk) {
+        this.addRawChunk(chunk);
+        
         const isTrusted = chunk.annotations?.['security.trust-level']?.trusted === true;
         const sourceUrl = chunk.annotations?.['web.source-url'] || 'Unknown source';
         
@@ -508,6 +549,19 @@ class RXCafeChat {
                         toggle.onclick = () => this.toggleTrustFromButton(chunkId, !trusted);
                     }
                 }
+                
+                const rawChunk = this.rawChunks.find(c => c.id === chunkId);
+                if (rawChunk) {
+                    rawChunk.annotations = rawChunk.annotations || {};
+                    rawChunk.annotations['security.trust-level'] = {
+                        trusted: trusted,
+                        source: rawChunk.annotations['security.trust-level']?.source || 'manual',
+                        requiresReview: !trusted
+                    };
+                    if (this.inspectorVisible) {
+                        this.updateInspector();
+                    }
+                }
             }
         } catch (error) {
             console.error('Failed to toggle trust:', error);
@@ -517,6 +571,11 @@ class RXCafeChat {
     
     handleStreamData(data) {
         switch (data.type) {
+            case 'user':
+                if (data.chunk) {
+                    this.addRawChunk(data.chunk);
+                }
+                break;
             case 'token':
                 if (data.token) {
                     this.currentContent += data.token;
@@ -599,6 +658,73 @@ class RXCafeChat {
         this.sendBtn.style.display = this.isGenerating ? 'none' : 'block';
         this.abortBtn.style.display = this.isGenerating ? 'block' : 'none';
         this.messageInput.disabled = this.isGenerating || !this.sessionId;
+    }
+    
+    toggleInspector() {
+        this.inspectorVisible = !this.inspectorVisible;
+        this.inspectorPanel.style.display = this.inspectorVisible ? 'flex' : 'none';
+        if (this.inspectorVisible) {
+            this.updateInspector();
+        }
+    }
+    
+    hideInspector() {
+        this.inspectorVisible = false;
+        this.inspectorPanel.style.display = 'none';
+    }
+    
+    addRawChunk(chunk) {
+        const existingIndex = this.rawChunks.findIndex(c => c.id === chunk.id);
+        if (existingIndex !== -1) {
+            this.rawChunks[existingIndex] = chunk;
+        } else {
+            this.rawChunks.push(chunk);
+        }
+        if (this.inspectorVisible) {
+            this.updateInspector();
+        }
+    }
+    
+    updateInspector() {
+        this.inspectorSession.textContent = JSON.stringify({
+            sessionId: this.sessionId,
+            backend: this.backend,
+            model: this.model
+        }, null, 2);
+        
+        this.inspectorChunkCount.textContent = this.rawChunks.length;
+        
+        this.inspectorChunks.innerHTML = this.rawChunks.map(chunk => {
+            const role = this.getChunkRole(chunk);
+            const trustStatus = chunk.annotations?.['security.trust-level']?.trusted;
+            const roleClass = trustStatus !== undefined 
+                ? (trustStatus ? 'trusted' : 'untrusted')
+                : role;
+            
+            return `
+                <div class="inspector-chunk" data-chunk-id="${chunk.id}">
+                    <div class="inspector-chunk-header" onclick="this.parentElement.classList.toggle('expanded')">
+                        <span class="inspector-chunk-id">${chunk.id.split('-').slice(-2).join('-')}</span>
+                        <span class="inspector-chunk-role ${roleClass}">${role}</span>
+                    </div>
+                    <div class="inspector-chunk-body">
+                        <pre>${this.escapeHtml(JSON.stringify(chunk, null, 2))}</pre>
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+    
+    getChunkRole(chunk) {
+        const role = chunk.annotations?.['chat.role'];
+        if (role) return role;
+        if (chunk.producer === 'com.rxcafe.web-fetch' || chunk.annotations?.['web.source-url']) return 'web';
+        if (chunk.producer.includes('kobold') || chunk.producer.includes('ollama') || chunk.producer === 'com.rxcafe.assistant') return 'assistant';
+        return chunk.producer.split('.').pop();
+    }
+    
+    escapeHtml(str) {
+        return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
     
     scrollToBottom() {

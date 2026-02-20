@@ -12,6 +12,7 @@
             <h1>RXCAFE Chat</h1>
             <div class="header-info">
                 <span id="backend-info">No backend</span>
+                <button id="inspector-toggle-btn" class="btn btn-secondary" title="Toggle inspector">🔍</button>
                 <button id="theme-toggle-btn" class="btn btn-secondary" title="Toggle theme">🌙</button>
                 <button id="new-session-btn" class="btn btn-secondary">New Session</button>
             </div>
@@ -47,6 +48,23 @@
                 </div>
             </div>
         </main>
+        
+        <aside id="inspector-panel" class="inspector-panel" style="display: none;">
+            <div class="inspector-header">
+                <h3>Inspector</h3>
+                <button id="inspector-close-btn" class="btn btn-secondary btn-small">✕</button>
+            </div>
+            <div class="inspector-content">
+                <div class="inspector-section">
+                    <h4>Session</h4>
+                    <pre id="inspector-session">No session</pre>
+                </div>
+                <div class="inspector-section">
+                    <h4>Chunks (<span id="inspector-chunk-count">0</span>)</h4>
+                    <div id="inspector-chunks"></div>
+                </div>
+            </div>
+        </aside>
         
         <footer class="footer">
             <span>Powered by RXCAFE • Supports KoboldCPP & Ollama • Web content requires trust</span>
