@@ -446,6 +446,21 @@ export class TelegramBot {
     });
   }
 
+  async deleteMessage(chatId: number, messageId: number): Promise<void> {
+    const response = await fetch(`${this.baseUrl}/deleteMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        message_id: messageId
+      })
+    });
+    const data = await response.json();
+    if (!data.ok) {
+      console.error('Failed to delete message:', data.description);
+    }
+  }
+
   createTrustKeyboard(chunkId: string): any {
     return {
       inline_keyboard: [[

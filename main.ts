@@ -762,9 +762,9 @@ async function finalizeTelegramMessage(chatId: number, text: string, messageId: 
     // Delete status message if it exists
     if (statusMessageId) {
       try {
-        await telegramBot.editMessage(chatId, statusMessageId, '✅');
+        await telegramBot.deleteMessage(chatId, statusMessageId);
       } catch {
-        // Ignore errors editing status message
+        // Ignore errors deleting status message
       }
     }
   } catch (error) {
