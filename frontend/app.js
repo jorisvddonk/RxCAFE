@@ -58,12 +58,13 @@ class RXCafeChat {
         this.isGenerating = false;
         this.currentMessageEl = null;
         this.currentContent = '';
-        this.chunkElements = new Map(); // Map chunk IDs to DOM elements
-        this.rawChunks = []; // Store raw chunk data for inspector
+        this.chunkElements = new Map();
+        this.rawChunks = [];
         this.contextMenuChunkId = null;
         this.token = this.getToken();
         this.inspectorVisible = false;
         this.agents = [];
+        this.knownSessions = [];
         
         this.init();
     }
@@ -99,6 +100,7 @@ class RXCafeChat {
     cacheElements() {
         this.backendInfoEl = document.getElementById('backend-info');
         this.newSessionBtn = document.getElementById('new-session-btn');
+        this.sessionSelect = document.getElementById('session-select');
         this.messagesEl = document.getElementById('messages');
         this.messageInput = document.getElementById('message-input');
         this.sendBtn = document.getElementById('send-btn');
@@ -168,6 +170,14 @@ class RXCafeChat {
                 this.agentDescription.textContent = selectedAgent.description || 'No description';
             } else {
                 this.agentDescription.textContent = '';
+            }
+        });
+        
+        // Session select change
+        this.sessionSelect.addEventListener('change', () => {
+            const selectedSessionId = this.sessionSelect.value;
+            if (selectedSessionId && selectedSessionId !== this.sessionId) {
+                this.switchToSession(selectedSessionId);
             }
         });
         
@@ -306,8 +316,8 @@ class RXCafeChat {
     async showBackendModal() {
         this.backendModal.style.display = 'flex';
         
-        // Load agents
-        await this.loadAgents();
+        // Load agents and sessions
+        await Promise.all([this.loadAgents(), this.loadSessions()]);
         
         const selectedBackend = document.querySelector('input[name="backend"]:checked')?.value;
         if (selectedBackend === 'ollama') {
@@ -336,6 +346,96 @@ class RXCafeChat {
         } catch (error) {
             console.error('Failed to load agents:', error);
             this.agentSelect.innerHTML = '<option value="default">default</option>';
+        }
+    }
+    
+    async loadSessions() {
+        try {
+            const response = await fetch(this.apiUrl('/api/sessions'));
+            const data = await response.json();
+            
+            if (data.sessions) {
+                this.knownSessions = data.sessions;
+                this.updateSessionSelect();
+            }
+        } catch (error) {
+            console.error('Failed to load sessions:', error);
+        }
+    }
+    
+    updateSessionSelect() {
+        if (this.knownSessions.length === 0) {
+            this.sessionSelect.style.display = 'none';
+            return;
+        }
+        
+        this.sessionSelect.style.display = 'inline-block';
+        this.sessionSelect.innerHTML = '<option value="">Sessions</option>' +
+            this.knownSessions.map(s => {
+                const isCurrent = s.id === this.sessionId;
+                const bg = s.isBackground ? ' [bg]' : '';
+                return `<option value="${s.id}" ${isCurrent ? 'selected' : ''}>${s.agentName}${bg}</option>`;
+            }).join('');
+    }
+    
+    async switchToSession(sessionId) {
+        try {
+            const response = await fetch(this.apiUrl(`/api/session/${sessionId}/history`));
+            const data = await response.json();
+            
+            if (data.sessionId) {
+                this.sessionId = data.sessionId;
+                this.backend = data.backend;
+                this.model = data.model;
+                
+                const sessionInfo = this.knownSessions.find(s => s.id === sessionId);
+                if (sessionInfo) {
+                    this.agentName = sessionInfo.agentName;
+                    this.isBackground = sessionInfo.isBackground;
+                }
+                
+                const info = [];
+                info.push(this.agentName || 'unknown');
+                if (this.backend) info.push(this.backend);
+                if (this.model) info.push(this.model);
+                if (this.isBackground) info.push('[background]');
+                this.backendInfoEl.textContent = info.join(' | ');
+                
+                this.messagesEl.innerHTML = '';
+                this.chunkElements.clear();
+                this.rawChunks = [];
+                
+                if (data.chunks && data.chunks.length > 0) {
+                    for (const chunk of data.chunks) {
+                        this.addRawChunk(chunk);
+                        this.renderChunk(chunk);
+                    }
+                }
+                
+                this.messageInput.disabled = false;
+                this.sendBtn.disabled = false;
+                this.updateSessionSelect();
+                this.updateInspector();
+            }
+        } catch (error) {
+            console.error('Failed to switch session:', error);
+            this.showError('Failed to switch session');
+        }
+    }
+    
+    renderChunk(chunk) {
+        const role = chunk.annotations?.['chat.role'];
+        const isWeb = chunk.producer === 'com.rxcafe.web-fetch' || chunk.annotations?.['web.source-url'];
+        const isSystem = role === 'system';
+        
+        if (isWeb) {
+            this.addWebChunk(chunk);
+        } else if (isSystem) {
+            this.addSystemChunk(chunk, chunk.content);
+        } else if (role === 'user') {
+            this.addMessage('user', chunk.content);
+        } else if (role === 'assistant') {
+            this.addMessage('assistant', chunk.content);
         }
     }
     
@@ -378,6 +478,17 @@ class RXCafeChat {
                 this.model = data.model;
                 this.agentName = data.agentName;
                 this.isBackground = data.isBackground;
+                
+                // Add to known sessions
+                const existingIndex = this.knownSessions.findIndex(s => s.id === data.sessionId);
+                if (existingIndex === -1) {
+                    this.knownSessions.push({
+                        id: data.sessionId,
+                        agentName: data.agentName,
+                        isBackground: data.isBackground
+                    });
+                }
+                this.updateSessionSelect();
                 
                 const info = [];
                 info.push(this.agentName);

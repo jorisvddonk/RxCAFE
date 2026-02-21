@@ -90,6 +90,21 @@ body {
     gap: 1rem;
 }
 
+.session-select {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 0.5rem;
+    font-size: 0.875rem;
+    background-color: var(--surface-color);
+    color: var(--text-color);
+    cursor: pointer;
+    max-width: 200px;
+}
+
+.session-select:hover {
+    border-color: var(--primary-color);
+}
+
 #session-id {
     font-size: 0.875rem;
     color: var(--text-secondary);
