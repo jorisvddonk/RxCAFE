@@ -635,9 +635,11 @@ class RXCafeChat {
         console.log(`[RXCAFE] renderChunk (from ${new Error().stack.split('\n')[2].trim()}) id=${chunk.id} role=${role} content="${String(chunk.content ?? '').slice(0,60)}"`);
         
         if (chunk.contentType === 'binary') {
-            const mimeType = chunk.content?.mimeType || 'image/png';
-            if (mimeType && mimeType.startsWith('image/')) {
+            const mimeType = chunk.content?.mimeType || '';
+            if (mimeType.startsWith('image/')) {
                 this.addImageMessage(role || 'assistant', chunk);
+            } else if (mimeType.startsWith('audio/')) {
+                this.addAudioMessage(role || 'assistant', chunk);
             } else {
                 console.warn('[RXCAFE] Unsupported binary chunk', chunk);
             }
@@ -1193,6 +1195,62 @@ class RXCafeChat {
             const caption = document.createElement('div');
             caption.className = 'message-meta';
             caption.textContent = chunk.annotations['image.description'];
+            contentEl.appendChild(caption);
+        }
+        
+        messageEl.appendChild(contentEl);
+        this.messagesEl.appendChild(messageEl);
+        this.chunkElements.set(chunk.id, messageEl);
+        this.scrollToBottom();
+    }
+
+    addAudioMessage(role, chunk) {
+        if (!chunk.content || !chunk.content.data) {
+            console.error('[RXCAFE] Binary chunk missing data', chunk);
+            return;
+        }
+        const { data, mimeType } = chunk.content;
+        
+        let uint8;
+        if (data instanceof Uint8Array) {
+            uint8 = data;
+        } else if (Array.isArray(data)) {
+            uint8 = new Uint8Array(data);
+        } else if (typeof data === 'object' && data !== null) {
+            if (data.type === 'Buffer' && Array.isArray(data.data)) {
+                uint8 = new Uint8Array(data.data);
+            } else {
+                uint8 = new Uint8Array(Object.values(data));
+            }
+        } else {
+            console.error('[RXCAFE] Invalid audio data format', data);
+            return;
+        }
+
+        const blob = new Blob([uint8], { type: mimeType });
+        const url = URL.createObjectURL(blob);
+        
+        const messageEl = document.createElement('div');
+        this._elCounter++;
+        messageEl.dataset.elId = this._elCounter;
+        messageEl.dataset.chunkId = chunk.id;
+        messageEl.className = `message ${role} audio-message`;
+        
+        const contentEl = document.createElement('div');
+        contentEl.className = 'message-content';
+        
+        const audio = document.createElement('audio');
+        audio.src = url;
+        audio.controls = true;
+        audio.style.width = '100%';
+        audio.style.display = 'block';
+        
+        contentEl.appendChild(audio);
+        
+        if (chunk.annotations?.['audio.description']) {
+            const caption = document.createElement('div');
+            caption.className = 'message-meta';
+            caption.textContent = chunk.annotations['audio.description'];
             contentEl.appendChild(caption);
         }
         
