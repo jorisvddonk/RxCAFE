@@ -350,8 +350,11 @@ function verifyClient(request: Request): { trusted: boolean; token: string | nul
 // Telegram Bot Integration
 // =============================================================================
 
-// Map Telegram chat IDs to RXCAFE session IDs
-const telegramSessions = new Map<number, string>();
+// Map Telegram chat IDs to current RXCAFE session ID
+const telegramCurrentSession = new Map<number, string>();
+
+// Map Telegram chat IDs to all accessible session IDs
+const telegramAllSessions = new Map<number, Set<string>>();
 
 let telegramBot: TelegramBot | null = null;
 
@@ -392,30 +395,126 @@ async function initTelegramBot(): Promise<void> {
       }
       
       // Get or create session for this chat
-      let sessionId = telegramSessions.get(chatId);
+      let sessionId = telegramCurrentSession.get(chatId);
       if (!sessionId) {
         console.log(`[Telegram] Creating new session for chat ${chatId}`);
         const session = await createSession(config);
-        telegramSessions.set(chatId, session.id);
+        telegramCurrentSession.set(chatId, session.id);
+        
+        if (!telegramAllSessions.has(chatId)) {
+          telegramAllSessions.set(chatId, new Set());
+        }
+        telegramAllSessions.get(chatId)!.add(session.id);
+        
         sessionId = session.id;
         console.log(`[Telegram] Created session ${sessionId}`);
-        await telegramBot!.sendMessage(chatId, `🤖 *RXCAFE Bot Started*\n\nSession created with ${config.backend} backend (${session.model || 'default model'}).\n\nAvailable commands:\n/web <URL> - Fetch web content\n/help - Show help`, { parseMode: 'Markdown' });
+        await telegramBot!.sendMessage(chatId, `🤖 *RXCAFE Bot Started*\n\nSession: \`${session.id}\`\nAgent: ${session.agentName}\nBackend: ${session.backend}${session.model ? ' (' + session.model + ')' : ''}\n\nType /help for available commands.`, { parseMode: 'Markdown' });
       }
       
       const session = getSession(sessionId);
       if (!session) {
-        await telegramBot!.sendMessage(chatId, '❌ Session error. Please restart with /start');
+        await telegramBot!.sendMessage(chatId, '❌ Session error. Use /new to create a new session.');
+        telegramCurrentSession.delete(chatId);
         return;
       }
       
       // Handle commands
-      if (text.startsWith('/start')) {
-        await telegramBot!.sendMessage(chatId, `👋 Welcome to RXCAFE Chat!\n\nI'm connected to the ${config.backend} LLM backend.\n\nJust send me a message and I'll respond!`, { parseMode: 'Markdown' });
+      if (text === '/start' || text.startsWith('/start ')) {
+        await telegramBot!.sendMessage(chatId, `👋 Welcome to RXCAFE Chat!\n\nCurrent session: \`${sessionId}\`\nAgent: ${session.agentName}\n\nUse /help to see available commands.`, { parseMode: 'Markdown' });
         return;
       }
       
-      if (text.startsWith('/help')) {
-        await telegramBot!.sendMessage(chatId, `*Available Commands:*\n\n/web <URL> - Fetch web content (untrusted by default)\n/system <prompt> - Set system prompt for LLM\n/help - Show this help\n\n*Web Content Trust System:*\nWhen you fetch web content, it's marked as untrusted and won't be used by the LLM until you trust it.`, { parseMode: 'Markdown' });
+      if (text === '/help') {
+        await telegramBot!.sendMessage(chatId, `*Available Commands:*
+
+*Session Management:*
+/new [agent] - Create new session
+/sessions - List your sessions
+/switch <id> - Switch to session
+/agents - List available agents
+
+*Chat:*
+/web <URL> - Fetch web content
+/system <prompt> - Set system prompt
+
+*Current:* \`${sessionId}\`
+*Agent:* ${session.agentName}`, { parseMode: 'Markdown' });
+        return;
+      }
+      
+      if (text === '/agents') {
+        const agents = listAgentsFromCore();
+        const agentList = agents.map(a => {
+          const bg = a.startInBackground ? ' [background]' : '';
+          return `• *${a.name}*${bg}\n  ${a.description || 'No description'}`;
+        }).join('\n');
+        await telegramBot!.sendMessage(chatId, `*Available Agents:*\n\n${agentList}`, { parseMode: 'Markdown' });
+        return;
+      }
+      
+      if (text === '/sessions') {
+        const chatSessions = telegramAllSessions.get(chatId);
+        if (!chatSessions || chatSessions.size === 0) {
+          await telegramBot!.sendMessage(chatId, 'No sessions found. Use /new to create one.');
+          return;
+        }
+        
+        const sessionList = Array.from(chatSessions).map(sid => {
+          const s = getSession(sid);
+          if (!s) return `• \`${sid}\` (expired)`;
+          const current = sid === sessionId ? ' ✓ current' : '';
+          const bg = s.isBackground ? ' [background]' : '';
+          return `• \`${sid}\`${current}${bg}\n  Agent: ${s.agentName}`;
+        }).join('\n');
+        
+        await telegramBot!.sendMessage(chatId, `*Your Sessions:*\n\n${sessionList}\n\nUse /switch <id> to switch.`, { parseMode: 'Markdown' });
+        return;
+      }
+      
+      if (text.startsWith('/switch ')) {
+        const targetSessionId = text.slice(8).trim();
+        const chatSessions = telegramAllSessions.get(chatId);
+        
+        if (!chatSessions?.has(targetSessionId)) {
+          // Check if it's a background session
+          const targetSession = getSession(targetSessionId);
+          if (targetSession && targetSession.isBackground) {
+            chatSessions?.add(targetSessionId);
+          } else {
+            await telegramBot!.sendMessage(chatId, `❌ Session not found: \`${targetSessionId}\`\n\nUse /sessions to list your sessions.`, { parseMode: 'Markdown' });
+            return;
+          }
+        }
+        
+        const targetSession = getSession(targetSessionId);
+        if (!targetSession) {
+          await telegramBot!.sendMessage(chatId, `❌ Session expired: \`${targetSessionId}\``, { parseMode: 'Markdown' });
+          chatSessions?.delete(targetSessionId);
+          return;
+        }
+        
+        telegramCurrentSession.set(chatId, targetSessionId);
+        await telegramBot!.sendMessage(chatId, `✅ Switched to session: \`${targetSessionId}\`\nAgent: ${targetSession.agentName}`, { parseMode: 'Markdown' });
+        return;
+      }
+      
+      if (text === '/new' || text.startsWith('/new ')) {
+        const agentName = text.slice(4).trim() || 'default';
+        console.log(`[Telegram] Creating new session for chat ${chatId} with agent ${agentName}`);
+        
+        try {
+          const newSession = await createSession(config, { agentId: agentName });
+          
+          if (!telegramAllSessions.has(chatId)) {
+            telegramAllSessions.set(chatId, new Set());
+          }
+          telegramAllSessions.get(chatId)!.add(newSession.id);
+          telegramCurrentSession.set(chatId, newSession.id);
+          
+          await telegramBot!.sendMessage(chatId, `✅ New session created\n\nSession: \`${newSession.id}\`\nAgent: ${newSession.agentName}\nBackend: ${newSession.backend}${newSession.model ? ' (' + newSession.model + ')' : ''}`, { parseMode: 'Markdown' });
+        } catch (err) {
+          await telegramBot!.sendMessage(chatId, `❌ Failed to create session: ${err instanceof Error ? err.message : 'Unknown error'}`);
+        }
         return;
       }
       
@@ -442,7 +541,7 @@ async function initTelegramBot(): Promise<void> {
         const chunkId = parts[1];
         const trusted = parts[2] === 'true';
         
-        const sessionId = telegramSessions.get(chatId);
+        const sessionId = telegramCurrentSession.get(chatId);
         if (!sessionId) return;
         
         const session = getSession(sessionId);
