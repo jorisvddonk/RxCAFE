@@ -509,6 +509,98 @@ body {
     justify-content: flex-end;
 }
 
+/* Agent Section */
+.agent-section {
+    margin-bottom: 1.5rem;
+}
+
+.agent-section label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 500;
+    color: var(--text-color);
+}
+
+.agent-section select {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 0.5rem;
+    font-size: 1rem;
+    background-color: var(--surface-color);
+    color: var(--text-color);
+}
+
+.agent-description {
+    margin-top: 0.5rem;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    font-style: italic;
+}
+
+/* Advanced Options */
+.advanced-options {
+    margin-bottom: 1.5rem;
+    border: 1px solid var(--border-color);
+    border-radius: 0.5rem;
+}
+
+.advanced-options summary {
+    padding: 0.75rem 1rem;
+    cursor: pointer;
+    font-size: 0.875rem;
+    color: var(--text-secondary);
+    user-select: none;
+}
+
+.advanced-options summary:hover {
+    background-color: var(--bg-color);
+}
+
+.advanced-content {
+    padding: 1rem;
+    border-top: 1px solid var(--border-color);
+}
+
+.option-group {
+    margin-bottom: 1rem;
+}
+
+.option-group:last-child {
+    margin-bottom: 0;
+}
+
+.option-group label {
+    display: block;
+    margin-bottom: 0.25rem;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--text-color);
+}
+
+.option-group input[type="number"] {
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 0.375rem;
+    font-size: 0.875rem;
+    background-color: var(--surface-color);
+    color: var(--text-color);
+}
+
+.option-group textarea {
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border-color);
+    border-radius: 0.375rem;
+    font-size: 0.875rem;
+    font-family: inherit;
+    resize: vertical;
+    min-height: 60px;
+    background-color: var(--surface-color);
+    color: var(--text-color);
+}
+
 .error-message {
     background-color: var(--web-bg-untrusted);
     border: 1px solid var(--web-border-untrusted);

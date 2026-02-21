@@ -13,14 +13,7 @@
  *                                   │
  *                                   └── errorStream (Subject) → UI
  * 
- * Pipeline (built once at session creation using RxJS):
- * 
- *     inputStream.pipe(
- *       filter(text only),
- *       map(add role annotation),
- *       filter(trusted only),
- *       mergeMap(processWithLLM)
- *     ) → outputStream
+ * Pipeline is built by Agents, which subscribe to inputStream and emit to outputStream.
  * 
  * ═══════════════════════════════════════════════════════════════════════════════
  *                              KEY PRINCIPLES
@@ -29,8 +22,8 @@
  * 1. UNIDIRECTIONAL FLOW
  *    LLM responses flow through outputStream, never back to inputStream
  * 
- * 2. PIPELINE BUILT ONCE
- *    Pipeline is constructed at session creation using RxJS operators
+ * 2. PIPELINE BUILT BY AGENTS
+ *    Agents construct pipelines at session initialization using RxJS operators
  * 
  * 3. CALLBACKS STORED IN SESSION
  *    Each HTTP request updates session.callbacks
@@ -52,6 +45,17 @@ import {
 import { Subject, Observable, merge, EMPTY, from, filter, map, mergeMap, catchError, tap } from './lib/stream.js';
 import { KoboldEvaluator } from './lib/kobold-api.js';
 import { OllamaEvaluator } from './lib/ollama-api.js';
+import { 
+  type AgentDefinition, 
+  type AgentSessionContext, 
+  type AgentEvaluator,
+  type LLMParams,
+  type SessionConfig,
+  type ChatCallbacks 
+} from './lib/agent.js';
+import { getAgent, loadAgents, listAgents, listBackgroundAgents } from './lib/agent-loader.js';
+import { SessionStore } from './lib/session-store.js';
+import { schedule, clearAllScheduledJobs } from './lib/scheduler.js';
 
 // =============================================================================
 // Configuration
@@ -65,6 +69,7 @@ export interface CoreConfig {
   ollamaBaseUrl: string;
   ollamaModel: string;
   tracing: boolean;
+  sessionStore?: SessionStore;
 }
 
 export function getDefaultConfig(): CoreConfig {
@@ -89,16 +94,17 @@ export interface LLMEvaluator {
 export function createEvaluator(
   backend: LLMBackend, 
   config: CoreConfig,
-  model?: string
+  model?: string,
+  llmParams?: LLMParams
 ): LLMEvaluator {
   if (backend === 'ollama') {
-    const ollama = new OllamaEvaluator(config.ollamaBaseUrl, model || config.ollamaModel);
+    const ollama = new OllamaEvaluator(config.ollamaBaseUrl, model || config.ollamaModel, '', llmParams);
     return {
       evaluateChunk: ollama.evaluateChunk.bind(ollama),
       abort: async () => {}
     };
   } else {
-    const kobold = new KoboldEvaluator(config.koboldBaseUrl);
+    const kobold = new KoboldEvaluator(config.koboldBaseUrl, '', llmParams);
     return {
       evaluateChunk: kobold.evaluateChunk.bind(kobold),
       abort: async () => {
@@ -114,6 +120,8 @@ export function createEvaluator(
 
 export interface Session {
   id: string;
+  agentName: string;
+  isBackground: boolean;
   inputStream: Subject<Chunk>;
   outputStream: Subject<Chunk>;
   errorStream: Subject<Error>;
@@ -125,39 +133,121 @@ export interface Session {
   trustedChunks: Set<string>;
   callbacks: ChatCallbacks | null;
   systemPrompt: string | null;
+  sessionConfig: SessionConfig;
   pipelineSubscription?: { unsubscribe: () => void };
+  _agentContext?: AgentSessionContext;
 }
 
 const sessions = new Map<string, Session>();
+let sessionStore: SessionStore | null = null;
 
-export function createSession(
+export function setSessionStore(store: SessionStore): void {
+  sessionStore = store;
+}
+
+export function getSessionStore(): SessionStore | null {
+  return sessionStore;
+}
+
+export interface CreateSessionOptions {
+  backend?: LLMBackend;
+  model?: string;
+  agentId?: string;
+  llmParams?: LLMParams;
+  systemPrompt?: string;
+  isBackground?: boolean;
+  sessionId?: string;
+}
+
+export async function createSession(
   config: CoreConfig,
-  backend?: LLMBackend, 
-  model?: string
-): Session {
-  const id = `session-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-  const useBackend = backend || config.backend;
+  options?: CreateSessionOptions
+): Promise<Session> {
+  const backend = options?.backend || config.backend;
+  const model = options?.model;
+  const agentId = options?.agentId || 'default';
+  const isBackground = options?.isBackground || false;
+  const id = options?.sessionId || `session-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
   
   const inputStream = new Subject<Chunk>();
   const outputStream = new Subject<Chunk>();
   const errorStream = new Subject<Error>();
   
-  const llmEvaluator = createEvaluator(useBackend, config, model);
+  const sessionConfig: SessionConfig = {
+    backend,
+    model,
+    llmParams: options?.llmParams,
+    systemPrompt: options?.systemPrompt,
+  };
+  
+  const agent = getAgent(agentId);
+  if (!agent) {
+    throw new Error(`Agent not found: ${agentId}`);
+  }
+  
+  const llmEvaluator = createEvaluator(backend, config, model, options?.llmParams);
   
   const session: Session = {
     id,
+    agentName: agentId,
+    isBackground,
     inputStream,
     outputStream,
     errorStream,
     history: [],
     llmEvaluator,
-    backend: useBackend,
+    backend,
     model,
     abortController: null,
     trustedChunks: new Set(),
     callbacks: null,
-    systemPrompt: null
+    systemPrompt: options?.systemPrompt || null,
+    sessionConfig,
   };
+  
+  const agentContext: AgentSessionContext = {
+    id,
+    agentName: agentId,
+    isBackground,
+    inputStream,
+    outputStream,
+    errorStream,
+    history: session.history,
+    config,
+    sessionConfig,
+    systemPrompt: session.systemPrompt,
+    trustedChunks: session.trustedChunks,
+    callbacks: null,
+    
+    createEvaluator: (backend: LLMBackend, model?: string, params?: LLMParams): AgentEvaluator => {
+      const evaluator = createEvaluator(backend, config, model, { ...options?.llmParams, ...params });
+      return {
+        evaluateChunk: evaluator.evaluateChunk,
+        abort: evaluator.abort,
+      };
+    },
+    
+    schedule: (cronExpr: string, callback: () => void | Promise<void>): (() => void) => {
+      return schedule(cronExpr, callback);
+    },
+    
+    persistState: async (): Promise<void> => {
+      if (sessionStore && isBackground) {
+        await sessionStore.saveSession(id, agentId, true, sessionConfig, session.systemPrompt);
+        await sessionStore.saveHistory(id, session.history);
+      }
+    },
+    
+    loadState: async (): Promise<void> => {
+      if (sessionStore && isBackground) {
+        const savedHistory = await sessionStore.loadHistory(id);
+        session.history.length = 0;
+        session.history.push(...savedHistory);
+      }
+    },
+  };
+  
+  session._agentContext = agentContext;
   
   outputStream.subscribe({
     next: (chunk) => {
@@ -170,147 +260,14 @@ export function createSession(
     }
   });
   
-  const pipeline$ = inputStream.pipe(
-    filter((chunk: Chunk) => chunk.contentType === 'text'),
-    
-    map((chunk: Chunk) => {
-      if (chunk.annotations['chat.role']) {
-        return chunk;
-      }
-      return annotateChunk(chunk, 'chat.role', 'user');
-    }),
-    
-    filter((chunk: Chunk) => {
-      const trustLevel = chunk.annotations['security.trust-level'];
-      return !trustLevel || trustLevel.trusted !== false;
-    }),
-    
-    mergeMap((chunk: Chunk) => processWithLLM(chunk, session, config.tracing)),
-    
-    map((chunk: Chunk) => {
-      if (chunk.contentType === 'text' && 
-          (chunk.producer === 'com.rxcafe.kobold-evaluator' || 
-           chunk.producer === 'com.rxcafe.ollama-evaluator' ||
-           chunk.producer === 'com.rxcafe.assistant')) {
-        return annotateChunk(chunk, 'chat.role', 'assistant');
-      }
-      return chunk;
-    }),
-    
-    catchError((error: Error) => {
-      session.errorStream.next(error);
-      return EMPTY;
-    })
-  );
+  if (isBackground && sessionStore) {
+    await sessionStore.saveSession(id, agentId, true, sessionConfig, session.systemPrompt);
+  }
   
-  const annotatedInput$ = inputStream.pipe(
-    filter((chunk: Chunk) => chunk.contentType === 'text'),
-    map((chunk: Chunk) => {
-      if (chunk.annotations['chat.role']) {
-        return chunk;
-      }
-      return annotateChunk(chunk, 'chat.role', 'user');
-    })
-  );
-  
-  const combined$ = merge(annotatedInput$, pipeline$);
-  
-  session.pipelineSubscription = combined$.subscribe({
-    next: (chunk: Chunk) => {
-      session.outputStream.next(chunk);
-    },
-    error: (error: Error) => {
-      session.errorStream.next(error);
-    }
-  });
+  await agent.initialize(agentContext);
   
   sessions.set(id, session);
   return session;
-}
-
-function processWithLLM(chunk: Chunk, session: Session, tracing: boolean): Observable<Chunk> {
-  return new Observable(subscriber => {
-    if (chunk.contentType !== 'text') {
-      subscriber.next(chunk);
-      subscriber.complete();
-      return;
-    }
-    
-    if (chunk.annotations['chat.role'] !== 'user') {
-      subscriber.next(chunk);
-      subscriber.complete();
-      return;
-    }
-    
-    const context = buildConversationContext(session.history, chunk.id, session.systemPrompt);
-    const currentMessage = chunk.content as string;
-    
-    const prompt = context 
-      ? `${context}\n\nUser: ${currentMessage}\nAssistant:`
-      : `User: ${currentMessage}\nAssistant:`;
-    
-    if (tracing) {
-      console.log('\n═══════════════════════════════════════════════════════════');
-      console.log('RXCAFE_TRACE: LLM Context');
-      console.log('═══════════════════════════════════════════════════════════');
-      console.log(`Chunk ID: ${chunk.id}`);
-      console.log(`Context Length: ${context.length} chars`);
-      console.log(`Total Prompt Length: ${prompt.length} chars`);
-      console.log('\n--- FULL CONTEXT SENT TO LLM ---');
-      console.log(prompt);
-      console.log('--- END CONTEXT ---\n');
-    }
-    
-    const contextChunk = createTextChunk(prompt, chunk.producer, {
-      ...chunk.annotations,
-      'llm.context-length': context.length,
-      'llm.full-prompt': true
-    });
-    
-    subscriber.next(createNullChunk('com.rxcafe.llm', {
-      'llm.generation-started': true,
-      'llm.backend': session.backend,
-      'llm.parent-chunk-id': chunk.id
-    }));
-    
-    let fullResponse = '';
-    
-    (async () => {
-      try {
-        for await (const tokenChunk of session.llmEvaluator.evaluateChunk(contextChunk)) {
-          if (tokenChunk.contentType === 'text') {
-            const token = tokenChunk.content as string;
-            fullResponse += token;
-            if (session.callbacks?.onToken) {
-              session.callbacks.onToken(token);
-            }
-          }
-        }
-        
-        const assistantChunk = createTextChunk(fullResponse, 'com.rxcafe.assistant', {
-          'chat.role': 'assistant'
-        });
-        subscriber.next(assistantChunk);
-        
-        if (session.callbacks?.onFinish) {
-          session.callbacks.onFinish(fullResponse);
-        }
-        
-        subscriber.complete();
-      } catch (error) {
-        subscriber.next(createNullChunk('com.rxcafe.error', {
-          'error.message': error instanceof Error ? error.message : 'LLM error',
-          'error.source-chunk-id': chunk.id
-        }));
-        
-        if (session.callbacks?.onError) {
-          session.callbacks.onError(error instanceof Error ? error : new Error('LLM error'));
-        }
-        
-        subscriber.error(error);
-      }
-    })();
-  });
 }
 
 export function getSession(sessionId: string): Session | undefined {
@@ -322,12 +279,72 @@ export function deleteSession(sessionId: string): boolean {
   if (session?.pipelineSubscription) {
     session.pipelineSubscription.unsubscribe();
   }
+  
+  if (sessionStore && session?.isBackground) {
+    sessionStore.deleteSession(sessionId).catch(err => {
+      console.error(`Failed to delete session ${sessionId} from store:`, err);
+    });
+  }
+  
   return sessions.delete(sessionId);
 }
 
 export function listSessions(): string[] {
   return Array.from(sessions.keys());
 }
+
+export function listActiveSessions(): Array<{ id: string; agentName: string; isBackground: boolean }> {
+  return Array.from(sessions.values()).map(s => ({
+    id: s.id,
+    agentName: s.agentName,
+    isBackground: s.isBackground,
+  }));
+}
+
+// =============================================================================
+// Background Agent Management
+// =============================================================================
+
+export async function startBackgroundAgents(config: CoreConfig): Promise<void> {
+  const agents = listBackgroundAgents();
+  
+  for (const agent of agents) {
+    const sessionId = agent.name;
+    
+    if (sessionStore) {
+      const existingSession = await sessionStore.getBackgroundSessionByAgentName(agent.name);
+      
+      if (existingSession) {
+        console.log(`[Core] Restoring background agent: ${agent.name}`);
+        const session = await createSession(config, {
+          agentId: agent.name,
+          isBackground: true,
+          sessionId: existingSession.id,
+          ...existingSession.config,
+        });
+        
+        if (session._agentContext) {
+          await session._agentContext.loadState();
+        }
+        
+        continue;
+      }
+    }
+    
+    console.log(`[Core] Starting background agent: ${agent.name}`);
+    await createSession(config, {
+      agentId: agent.name,
+      isBackground: true,
+      sessionId,
+    });
+  }
+}
+
+export async function loadAgentsFromDisk(): Promise<void> {
+  await loadAgents();
+}
+
+export { getAgent, listAgents, listBackgroundAgents };
 
 // =============================================================================
 // Security and Trust Management
@@ -556,11 +573,7 @@ export async function listModels(config: CoreConfig, backend?: string): Promise<
 // Chat Processing
 // =============================================================================
 
-export interface ChatCallbacks {
-  onToken: (token: string) => void;
-  onFinish: (fullResponse: string) => void;
-  onError: (error: Error) => void;
-}
+export { type ChatCallbacks } from './lib/agent.js';
 
 export async function processChatMessage(
   session: Session,
@@ -571,6 +584,10 @@ export async function processChatMessage(
   const abortController = new AbortController();
   session.abortController = abortController;
   session.callbacks = callbacks;
+  
+  if (session._agentContext) {
+    session._agentContext.callbacks = callbacks;
+  }
   
   const userChunk = createTextChunk(message, 'com.rxcafe.user', {
     'chat.role': 'user'
@@ -586,4 +603,20 @@ export async function abortGeneration(session: Session): Promise<void> {
   }
   
   await session.llmEvaluator.abort();
+}
+
+// =============================================================================
+// Cleanup
+// =============================================================================
+
+export function shutdown(): void {
+  clearAllScheduledJobs();
+  
+  for (const session of sessions.values()) {
+    if (session.pipelineSubscription) {
+      session.pipelineSubscription.unsubscribe();
+    }
+  }
+  
+  sessions.clear();
 }

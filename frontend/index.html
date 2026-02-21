@@ -74,7 +74,16 @@
     <!-- Backend Selection Modal -->
     <div id="backend-modal" class="modal" style="display: none;">
         <div class="modal-content">
-            <h2>Select LLM Backend</h2>
+            <h2>Create Session</h2>
+            
+            <div class="agent-section">
+                <label for="agent-select">Agent:</label>
+                <select id="agent-select">
+                    <option value="">Loading agents...</option>
+                </select>
+                <p id="agent-description" class="agent-description"></p>
+            </div>
+            
             <div class="backend-options">
                 <label class="backend-option">
                     <input type="radio" name="backend" value="kobold" checked>
@@ -97,6 +106,25 @@
                     <option value="">Loading models...</option>
                 </select>
             </div>
+            
+            <details class="advanced-options">
+                <summary>Advanced Options</summary>
+                <div class="advanced-content">
+                    <div class="option-group">
+                        <label for="temperature">Temperature:</label>
+                        <input type="number" id="temperature" step="0.1" min="0" max="2" placeholder="0.7">
+                    </div>
+                    <div class="option-group">
+                        <label for="max-tokens">Max Tokens:</label>
+                        <input type="number" id="max-tokens" min="1" placeholder="500">
+                    </div>
+                    <div class="option-group">
+                        <label for="system-prompt">System Prompt:</label>
+                        <textarea id="system-prompt" rows="3" placeholder="Optional system prompt..."></textarea>
+                    </div>
+                </div>
+            </details>
+            
             <div class="modal-actions">
                 <button id="create-session-btn" class="btn btn-primary">Create Session</button>
                 <button id="cancel-btn" class="btn btn-secondary">Cancel</button>

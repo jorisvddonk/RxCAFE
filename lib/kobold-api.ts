@@ -4,6 +4,7 @@
  */
 
 import { createTextChunk, createNullChunk, annotateChunk, type Chunk } from './chunk.js';
+import type { LLMParams } from './agent.js';
 
 export interface KoboldSettings {
   baseUrl: string;
@@ -266,8 +267,20 @@ export class KoboldEvaluator {
   private api: KoboldAPI;
   private systemPrompt: string;
 
-  constructor(baseUrl?: string, systemPrompt: string = '') {
-    this.api = new KoboldAPI(baseUrl);
+  constructor(baseUrl?: string, systemPrompt: string = '', llmParams?: LLMParams) {
+    const settings: Partial<KoboldSettings> = {};
+    
+    if (llmParams) {
+      if (llmParams.temperature !== undefined) settings.temperature = llmParams.temperature;
+      if (llmParams.maxTokens !== undefined) settings.maxLength = llmParams.maxTokens;
+      if (llmParams.topP !== undefined) settings.topP = llmParams.topP;
+      if (llmParams.topK !== undefined) settings.topK = llmParams.topK;
+      if (llmParams.repeatPenalty !== undefined) settings.repetitionPenalty = llmParams.repeatPenalty;
+      if (llmParams.stop !== undefined) settings.stopSequence = llmParams.stop;
+      if (llmParams.maxContextLength !== undefined) settings.maxContextLength = llmParams.maxContextLength;
+    }
+    
+    this.api = new KoboldAPI(baseUrl, settings);
     this.systemPrompt = systemPrompt;
   }
 

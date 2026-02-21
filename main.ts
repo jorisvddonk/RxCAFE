@@ -36,12 +36,21 @@ import {
   listModels,
   processChatMessage,
   abortGeneration,
+  loadAgentsFromDisk,
+  startBackgroundAgents,
+  listAgents as listAgentsFromCore,
+  listActiveSessions,
+  setSessionStore,
+  shutdown,
   type CoreConfig,
   type Session,
-  type AddChunkOptions
+  type AddChunkOptions,
+  type CreateSessionOptions
 } from './core.js';
 import { TelegramBot, TelegramUser, TelegramConfig } from './lib/telegram.js';
 import { TrustDatabase, extractClientToken, maskToken } from './lib/trust.js';
+import { SessionStore } from './lib/session-store.js';
+import type { LLMParams } from './lib/agent.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -251,6 +260,10 @@ const TRUST_DB_PATH = process.env.TRUST_DB_PATH || './rxcafe-trust.db';
 // Initialize trust database
 const trustDb = new TrustDatabase(TRUST_DB_PATH);
 
+// Initialize session store
+const sessionStore = new SessionStore(trustDb.db as any);
+setSessionStore(sessionStore);
+
 console.log(`RXCAFE Chat Server`);
 console.log(`Backend: ${config.backend}`);
 console.log(`KoboldCPP URL: ${config.koboldBaseUrl}`);
@@ -382,7 +395,7 @@ async function initTelegramBot(): Promise<void> {
       let sessionId = telegramSessions.get(chatId);
       if (!sessionId) {
         console.log(`[Telegram] Creating new session for chat ${chatId}`);
-        const session = createSession(config);
+        const session = await createSession(config);
         telegramSessions.set(chatId, session.id);
         sessionId = session.id;
         console.log(`[Telegram] Created session ${sessionId}`);
@@ -599,17 +612,56 @@ async function finalizeTelegramMessage(chatId: number, text: string, messageId: 
 // =============================================================================
 
 async function handleCreateSession(body?: any): Promise<Response> {
-  const backend = body?.backend || config.backend;
-  const model = body?.model;
+  try {
+    const options: CreateSessionOptions = {
+      backend: body?.backend,
+      model: body?.model,
+      agentId: body?.agentId,
+      systemPrompt: body?.systemPrompt,
+      llmParams: body?.llmParams,
+    };
+    
+    const session = await createSession(config, options);
+    
+    return new Response(JSON.stringify({ 
+      sessionId: session.id,
+      backend: session.backend,
+      model: session.model,
+      agentName: session.agentName,
+      isBackground: session.isBackground,
+      message: 'Session created'
+    }), {
+      headers: { 'Content-Type': 'application/json' }
+    });
+  } catch (error) {
+    return new Response(JSON.stringify({ 
+      error: 'Failed to create session',
+      message: error instanceof Error ? error.message : 'Unknown error'
+    }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+}
+
+async function handleListAgents(): Promise<Response> {
+  const agents = listAgentsFromCore();
   
-  const session = createSession(config, backend, model);
-  
-  return new Response(JSON.stringify({ 
-    sessionId: session.id,
-    backend: session.backend,
-    model: session.model,
-    message: 'Session created'
+  return new Response(JSON.stringify({
+    agents: agents.map(a => ({
+      name: a.name,
+      description: a.description,
+      startInBackground: a.startInBackground,
+    }))
   }), {
+    headers: { 'Content-Type': 'application/json' }
+  });
+}
+
+async function handleListSessions(): Promise<Response> {
+  const sessions = listActiveSessions();
+  
+  return new Response(JSON.stringify({ sessions }), {
     headers: { 'Content-Type': 'application/json' }
   });
 }
@@ -1010,6 +1062,16 @@ const server = serve({
     }
     
     // API Routes
+    if (pathname === '/api/agents' && request.method === 'GET') {
+      const response = await handleListAgents();
+      return addCors(response, corsHeaders);
+    }
+    
+    if (pathname === '/api/sessions' && request.method === 'GET') {
+      const response = await handleListSessions();
+      return addCors(response, corsHeaders);
+    }
+    
     if (pathname === '/api/session' && request.method === 'POST') {
       const body = await request.json().catch(() => ({}));
       const response = await handleCreateSession(body);
@@ -1123,18 +1185,32 @@ function addCors(response: Response, corsHeaders: Record<string, string>): Respo
 
 console.log(`Server running at http://localhost:${PORT}?token=${webToken}`);
 
-// Initialize Telegram bot (if configured)
-initTelegramBot().catch(console.error);
+// Load agents and start background agents
+(async () => {
+  console.log('[Server] Loading agents...');
+  await loadAgentsFromDisk();
+  
+  const agents = listAgentsFromCore();
+  console.log(`[Server] Loaded ${agents.length} agents: ${agents.map(a => a.name).join(', ')}`);
+  
+  console.log('[Server] Starting background agents...');
+  await startBackgroundAgents(config);
+  
+  // Initialize Telegram bot (if configured)
+  initTelegramBot().catch(console.error);
+})();
 
 // Cleanup on exit
 process.on('SIGINT', () => {
   console.log('\nShutting down...');
+  shutdown();
   trustDb.close();
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
   console.log('\nShutting down...');
+  shutdown();
   trustDb.close();
   process.exit(0);
 });

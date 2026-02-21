@@ -53,6 +53,8 @@ class RXCafeChat {
         this.sessionId = null;
         this.backend = null;
         this.model = null;
+        this.agentName = null;
+        this.isBackground = false;
         this.isGenerating = false;
         this.currentMessageEl = null;
         this.currentContent = '';
@@ -61,6 +63,7 @@ class RXCafeChat {
         this.contextMenuChunkId = null;
         this.token = this.getToken();
         this.inspectorVisible = false;
+        this.agents = [];
         
         this.init();
     }
@@ -109,6 +112,15 @@ class RXCafeChat {
         this.ollamaModelSection = document.getElementById('ollama-model-section');
         this.ollamaModelSelect = document.getElementById('ollama-model');
         
+        // Agent elements
+        this.agentSelect = document.getElementById('agent-select');
+        this.agentDescription = document.getElementById('agent-description');
+        
+        // Advanced options
+        this.temperatureInput = document.getElementById('temperature');
+        this.maxTokensInput = document.getElementById('max-tokens');
+        this.systemPromptInput = document.getElementById('system-prompt');
+        
         // Context menu
         this.contextMenu = document.getElementById('context-menu');
         this.contextTrust = document.getElementById('context-trust');
@@ -147,6 +159,16 @@ class RXCafeChat {
                     this.loadOllamaModels('ollama');
                 }
             });
+        });
+        
+        // Agent select change
+        this.agentSelect.addEventListener('change', () => {
+            const selectedAgent = this.agents.find(a => a.name === this.agentSelect.value);
+            if (selectedAgent) {
+                this.agentDescription.textContent = selectedAgent.description || 'No description';
+            } else {
+                this.agentDescription.textContent = '';
+            }
         });
         
         // Context menu actions
@@ -281,12 +303,39 @@ class RXCafeChat {
         });
     }
     
-    showBackendModal() {
+    async showBackendModal() {
         this.backendModal.style.display = 'flex';
+        
+        // Load agents
+        await this.loadAgents();
         
         const selectedBackend = document.querySelector('input[name="backend"]:checked')?.value;
         if (selectedBackend === 'ollama') {
             this.loadOllamaModels('ollama');
+        }
+    }
+    
+    async loadAgents() {
+        try {
+            const response = await fetch(this.apiUrl('/api/agents'));
+            const data = await response.json();
+            
+            if (data.agents && data.agents.length > 0) {
+                this.agents = data.agents;
+                this.agentSelect.innerHTML = data.agents
+                    .map(a => `<option value="${a.name}">${a.name}${a.startInBackground ? ' (background)' : ''}</option>`)
+                    .join('');
+                
+                // Select default agent and show description
+                const defaultAgent = data.agents.find(a => a.name === 'default') || data.agents[0];
+                if (defaultAgent) {
+                    this.agentSelect.value = defaultAgent.name;
+                    this.agentDescription.textContent = defaultAgent.description || '';
+                }
+            }
+        } catch (error) {
+            console.error('Failed to load agents:', error);
+            this.agentSelect.innerHTML = '<option value="default">default</option>';
         }
     }
     
@@ -297,6 +346,16 @@ class RXCafeChat {
     async createSession() {
         const selectedBackend = document.querySelector('input[name="backend"]:checked')?.value || 'kobold';
         const selectedModel = selectedBackend === 'ollama' ? this.ollamaModelSelect.value : undefined;
+        const selectedAgent = this.agentSelect.value || 'default';
+        
+        // Get advanced options
+        const temperature = this.temperatureInput.value ? parseFloat(this.temperatureInput.value) : undefined;
+        const maxTokens = this.maxTokensInput.value ? parseInt(this.maxTokensInput.value) : undefined;
+        const systemPrompt = this.systemPromptInput.value.trim() || undefined;
+        
+        const llmParams = (temperature || maxTokens) ? {} : undefined;
+        if (temperature !== undefined) llmParams.temperature = temperature;
+        if (maxTokens !== undefined) llmParams.maxTokens = maxTokens;
         
         try {
             const response = await fetch(this.apiUrl('/api/session'), {
@@ -304,7 +363,10 @@ class RXCafeChat {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
                     backend: selectedBackend,
-                    model: selectedModel
+                    model: selectedModel,
+                    agentId: selectedAgent,
+                    llmParams,
+                    systemPrompt
                 })
             });
             
@@ -314,13 +376,25 @@ class RXCafeChat {
                 this.sessionId = data.sessionId;
                 this.backend = data.backend;
                 this.model = data.model;
-                this.backendInfoEl.textContent = `${this.backend}${this.model ? ': ' + this.model : ''}`;
+                this.agentName = data.agentName;
+                this.isBackground = data.isBackground;
+                
+                const info = [];
+                info.push(this.agentName);
+                if (this.backend) info.push(this.backend);
+                if (this.model) info.push(this.model);
+                if (this.isBackground) info.push('[background]');
+                this.backendInfoEl.textContent = info.join(' | ');
+                
                 this.messageInput.disabled = false;
                 this.sendBtn.disabled = false;
                 this.messagesEl.innerHTML = '';
                 this.chunkElements.clear();
                 this.rawChunks = [];
-                this.addSystemMessage(`Session created with ${this.backend}${this.model ? ' (' + this.model + ')' : ''}`);
+                this.addSystemMessage(`Session created: ${this.agentName}`);
+                if (this.backend) {
+                    this.addSystemMessage(`Backend: ${this.backend}${this.model ? ' (' + this.model + ')' : ''}`);
+                }
                 this.addSystemMessage('Commands: /web URL | /system prompt | /addchunk JSON');
                 this.hideBackendModal();
                 this.messageInput.focus();
@@ -794,8 +868,10 @@ class RXCafeChat {
     updateInspector() {
         this.inspectorSession.textContent = JSON.stringify({
             sessionId: this.sessionId,
+            agentName: this.agentName,
             backend: this.backend,
-            model: this.model
+            model: this.model,
+            isBackground: this.isBackground
         }, null, 2);
         
         this.inspectorChunkCount.textContent = this.rawChunks.length;

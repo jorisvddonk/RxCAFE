@@ -4,6 +4,7 @@
  */
 
 import { createTextChunk, createNullChunk, annotateChunk, type Chunk } from './chunk.js';
+import type { LLMParams } from './agent.js';
 
 export interface OllamaSettings {
   baseUrl: string;
@@ -15,6 +16,7 @@ export interface OllamaSettings {
   repeatPenalty: number;
   seed?: number;
   system?: string;
+  numCtx?: number;
 }
 
 const defaultSettings: OllamaSettings = {
@@ -62,6 +64,7 @@ export class OllamaAPI {
           num_predict: this.settings.numPredict,
           repeat_penalty: this.settings.repeatPenalty,
           seed: this.settings.seed,
+          num_ctx: this.settings.numCtx,
         },
         system: this.settings.system,
       }),
@@ -92,6 +95,7 @@ export class OllamaAPI {
           num_predict: this.settings.numPredict,
           repeat_penalty: this.settings.repeatPenalty,
           seed: this.settings.seed,
+          num_ctx: this.settings.numCtx,
         },
         system: this.settings.system,
       }),
@@ -181,8 +185,20 @@ export class OllamaEvaluator {
   private api: OllamaAPI;
   private systemPrompt: string;
 
-  constructor(baseUrl?: string, model?: string, systemPrompt: string = '') {
-    this.api = new OllamaAPI(baseUrl, model);
+  constructor(baseUrl?: string, model?: string, systemPrompt: string = '', llmParams?: LLMParams) {
+    const settings: Partial<OllamaSettings> = {};
+    
+    if (llmParams) {
+      if (llmParams.temperature !== undefined) settings.temperature = llmParams.temperature;
+      if (llmParams.maxTokens !== undefined) settings.numPredict = llmParams.maxTokens;
+      if (llmParams.topP !== undefined) settings.topP = llmParams.topP;
+      if (llmParams.topK !== undefined) settings.topK = llmParams.topK;
+      if (llmParams.repeatPenalty !== undefined) settings.repeatPenalty = llmParams.repeatPenalty;
+      if (llmParams.seed !== undefined) settings.seed = llmParams.seed;
+      if (llmParams.numCtx !== undefined) settings.numCtx = llmParams.numCtx;
+    }
+    
+    this.api = new OllamaAPI(baseUrl, model, settings);
     this.systemPrompt = systemPrompt;
     
     if (systemPrompt) {
