@@ -299,8 +299,12 @@ export async function createSession(
   // Pass user messages and metadata from inputStream to outputStream for history
   inputStream.subscribe({
     next: (chunk) => {
+      const role = chunk.annotations['chat.role'];
+      const isWeb = chunk.producer === 'com.rxcafe.web-fetch' || chunk.annotations['web.source-url'];
+      const isSessionName = !!chunk.annotations['session.name'];
+      
       if ((chunk.contentType === 'text' || chunk.contentType === 'null') && 
-          (chunk.annotations['chat.role'] === 'user' || chunk.annotations['session.name'])) {
+          (role === 'user' || role === 'system' || isWeb || isSessionName)) {
         outputStream.next(chunk);
       }
     }
@@ -682,7 +686,8 @@ export async function processChatMessage(
   session: Session,
   message: string,
   callbacks: ChatCallbacks,
-  config: CoreConfig
+  config: CoreConfig,
+  extraAnnotations: Record<string, any> = {}
 ): Promise<void> {
   const abortController = new AbortController();
   session.abortController = abortController;
@@ -693,7 +698,8 @@ export async function processChatMessage(
   }
   
   const userChunk = createTextChunk(message, 'com.rxcafe.user', {
-    'chat.role': 'user'
+    'chat.role': 'user',
+    ...extraAnnotations
   });
   
   session.inputStream.next(userChunk);

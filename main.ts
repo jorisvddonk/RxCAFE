@@ -655,41 +655,51 @@ async function handleTelegramMessage(chatId: number, session: Session, message: 
   try {
     console.log(`[Telegram] Starting LLM evaluation...`);
     
+    const callbacks: ChatCallbacks = {
+      onToken: (token: string) => {
+        tokenCount++;
+        fullResponse += token;
+        
+        // Update message every 20 characters to avoid rate limits
+        if (fullResponse.length % 20 === 0 && fullResponse.length > 0) {
+          updateTelegramMessage(chatId, fullResponse, messageId).then(id => {
+            if (id && !messageId) messageId = id;
+          });
+        }
+      },
+      onFinish: () => {
+        console.log(`[Telegram] LLM evaluation complete. Tokens: ${tokenCount}, Response length: ${fullResponse.length}`);
+        
+        // Final message update
+        finalizeTelegramMessage(chatId, fullResponse, messageId, statusMessage?.message_id);
+
+        // Clear callbacks
+        if (session.callbacks === callbacks) {
+            session.callbacks = null;
+            if (session._agentContext) session._agentContext.callbacks = null;
+        }
+      },
+      onError: (error: Error) => {
+        console.error('[Telegram] LLM error:', error);
+        telegramBot!.sendMessage(chatId, `❌ Error: ${error.message}`);
+        
+        // Clear callbacks
+        if (session.callbacks === callbacks) {
+            session.callbacks = null;
+            if (session._agentContext) session._agentContext.callbacks = null;
+        }
+      }
+    };
+
+    // Tag the callbacks so we know they belong to THIS telegram chat
+    (callbacks as any).telegramChatId = chatId;
+
     await processChatMessage(
       session,
       message,
-      {
-        onToken: (token: string) => {
-          tokenCount++;
-          fullResponse += token;
-          
-          // Update message every 20 characters to avoid rate limits
-          if (fullResponse.length % 20 === 0 && fullResponse.length > 0) {
-            updateTelegramMessage(chatId, fullResponse, messageId).then(id => {
-              if (id && !messageId) messageId = id;
-            });
-          }
-        },
-        onFinish: () => {
-          console.log(`[Telegram] LLM evaluation complete. Tokens: ${tokenCount}, Response length: ${fullResponse.length}`);
-          
-          // Final message update
-          finalizeTelegramMessage(chatId, fullResponse, messageId, statusMessage?.message_id);
-
-          // Clear callbacks so outputStream subscription can take over for non-interactive events
-          session.callbacks = null;
-          if (session._agentContext) session._agentContext.callbacks = null;
-        },
-        onError: (error: Error) => {
-          console.error('[Telegram] LLM error:', error);
-          telegramBot!.sendMessage(chatId, `❌ Error: ${error.message}`);
-          
-          // Clear callbacks
-          session.callbacks = null;
-          if (session._agentContext) session._agentContext.callbacks = null;
-        }
-      },
-      config
+      callbacks,
+      config,
+      { 'client.type': 'telegram', 'telegram.chatId': chatId }
     );
     
   } catch (error) {
@@ -796,8 +806,8 @@ function ensureTelegramSubscription(chatId: number, session: Session) {
     next: async (chunk: Chunk) => {
       if (!telegramBot) return;
       
-      // Skip chunks with role 'user'
-      if (chunk.annotations['chat.role'] === 'user') return;
+      // Skip user messages that originated from THIS specific Telegram chat to avoid echoing
+      if (chunk.annotations['chat.role'] === 'user' && chunk.annotations['telegram.chatId'] === chatId) return;
       
       // Skip assistant tokens (they are handled via onToken callbacks during active generation)
       if (chunk.annotations['llm.stream']) return;
@@ -832,15 +842,34 @@ function ensureTelegramSubscription(chatId: number, session: Session) {
           console.error('[Telegram] Failed to send media:', err);
         }
       }
-      // Handle non-streaming assistant messages or background agent messages
+      // Handle text messages (User messages from other clients, Assistant responses, System updates, or Web content)
       else if (chunk.contentType === 'text') {
-          // If we have active callbacks, it means an interactive chat turn is in progress.
-          // The callbacks (onToken/onFinish) are already handling the text UI for this turn.
-          // We skip the final 'assistant' text chunk to avoid duplicate messages in Telegram.
+          const role = chunk.annotations['chat.role'];
+          const isAssistant = role === 'assistant';
+          const isUser = role === 'user';
+          const isSystem = role === 'system';
+          const isWeb = chunk.producer === 'com.rxcafe.web-fetch' || chunk.annotations['web.source-url'];
           
-          const isAssistant = chunk.annotations['chat.role'] === 'assistant';
+          // 1. Send User messages that originated from elsewhere (e.g. Web UI)
+          if (isUser) {
+              // We already filtered out 'user' chunks from THIS chat at the top of next()
+              await telegramBot.sendMessage(chatId, `👤 *User:* ${chunk.content}`, { parseMode: 'Markdown' });
+          }
+          // 2. Send Web content (e.g. results of /web command on Web UI)
+          else if (isWeb) {
+              const url = chunk.annotations['web.source-url'] || 'unknown';
+              await telegramBot.sendMessage(chatId, `🌐 *Web Content:* ${url}\n\n${(chunk.content as string).substring(0, 500)}...`, { parseMode: 'Markdown' });
+          }
+          // 3. Send System updates (e.g. /system changes from Web UI)
+          else if (isSystem) {
+              await telegramBot.sendMessage(chatId, `⚙️ *System:* ${chunk.content}`, { parseMode: 'Markdown' });
+          }
+          // 4. Send Assistant messages only if we aren't currently "streaming" them
+          // via interactive callbacks (prevents doubles).
+          // We check if the active callbacks belong to THIS specific Telegram chat.
+          const isActiveTurnForUs = (session.callbacks as any)?.telegramChatId === chatId;
           
-          if (isAssistant && !session.callbacks) {
+          if (isAssistant && !isActiveTurnForUs) {
               await telegramBot.sendMessage(chatId, chunk.content as string);
           }
       }
@@ -1184,7 +1213,8 @@ async function handleChatStream(
             controller.close();
           }
         },
-        config
+        config,
+        { 'client.type': 'web' }
       ).catch(error => {
         controller.enqueue(`data: ${JSON.stringify({ 
           type: 'error',
