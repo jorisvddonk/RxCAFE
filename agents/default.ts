@@ -133,9 +133,7 @@ function processWithEvaluator(
           session.callbacks.onFinish(fullResponse);
         }
         
-        if (session.isBackground) {
-          await session.persistState();
-        }
+        await session.persistState();
         
         subscriber.complete();
       } catch (error) {

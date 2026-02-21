@@ -30,6 +30,7 @@ import {
   getDefaultConfig,
   createSession,
   getSession,
+  getAgent,
   fetchWebContent,
   toggleChunkTrust,
   addChunkToSession,
@@ -38,6 +39,7 @@ import {
   abortGeneration,
   loadAgentsFromDisk,
   startBackgroundAgents,
+  restorePersistedSessions,
   listAgents as listAgentsFromCore,
   listActiveSessions,
   setSessionStore,
@@ -261,7 +263,7 @@ const TRUST_DB_PATH = process.env.TRUST_DB_PATH || './rxcafe-trust.db';
 const trustDb = new TrustDatabase(TRUST_DB_PATH);
 
 // Initialize session store
-const sessionStore = new SessionStore(trustDb.db as any);
+const sessionStore = new SessionStore(trustDb.getDatabase());
 setSessionStore(sessionStore);
 
 console.log(`RXCAFE Chat Server`);
@@ -758,9 +760,24 @@ async function handleListAgents(): Promise<Response> {
 }
 
 async function handleListSessions(): Promise<Response> {
-  const sessions = listActiveSessions();
+  const activeSessions = listActiveSessions();
   
-  return new Response(JSON.stringify({ sessions }), {
+  const allSessionIds = new Set(activeSessions.map(s => s.id));
+  
+  if (sessionStore) {
+    const persistedSessions = await sessionStore.listAllSessions();
+    for (const ps of persistedSessions) {
+      if (!allSessionIds.has(ps.id)) {
+        activeSessions.push({
+          id: ps.id,
+          agentName: ps.agentName,
+          isBackground: ps.isBackground,
+        });
+      }
+    }
+  }
+  
+  return new Response(JSON.stringify({ sessions: activeSessions }), {
     headers: { 'Content-Type': 'application/json' }
   });
 }
@@ -793,7 +810,29 @@ async function handleListModels(backend?: string): Promise<Response> {
 }
 
 async function handleGetHistory(sessionId: string): Promise<Response> {
-  const session = getSession(sessionId);
+  let session = getSession(sessionId);
+  
+  if (!session && sessionStore) {
+    const sessionData = await sessionStore.loadSession(sessionId);
+    if (sessionData) {
+      const agent = getAgent(sessionData.agentName);
+      if (agent) {
+        const restoredSession = await createSession(config, {
+          agentId: sessionData.agentName,
+          isBackground: sessionData.isBackground,
+          sessionId: sessionId,
+          ...sessionData.config,
+          systemPrompt: sessionData.systemPrompt || undefined,
+        });
+        
+        if (restoredSession._agentContext) {
+          await restoredSession._agentContext.loadState();
+        }
+        
+        session = restoredSession;
+      }
+    }
+  }
   
   if (!session) {
     return new Response(JSON.stringify({ error: 'Session not found' }), {
@@ -1082,6 +1121,38 @@ function getFrontendCss(): string {
   }
 }
 
+function getManifest(): string {
+  try {
+    return readFileSync(join(__dirname, 'frontend', 'manifest.json'), 'utf-8');
+  } catch {
+    return '{}';
+  }
+}
+
+function getServiceWorker(): string {
+  try {
+    return readFileSync(join(__dirname, 'frontend', 'sw.js'), 'utf-8');
+  } catch {
+    return '';
+  }
+}
+
+function getIcon(size: number): Buffer | null {
+  try {
+    return readFileSync(join(__dirname, 'frontend', `icon-${size}.png`));
+  } catch {
+    return null;
+  }
+}
+
+function getIconSvg(): string {
+  try {
+    return readFileSync(join(__dirname, 'frontend', 'icon.svg'), 'utf-8');
+  } catch {
+    return '<svg xmlns="http://www.w3.org/2000/svg"/>';
+  }
+}
+
 // =============================================================================
 // HTTP Server
 // =============================================================================
@@ -1120,6 +1191,51 @@ const server = serve({
     if (pathname === '/styles.css') {
       return new Response(getFrontendCss(), {
         headers: { 'Content-Type': 'text/css', ...corsHeaders }
+      });
+    }
+    
+    // PWA files
+    if (pathname === '/manifest.json') {
+      return new Response(getManifest(), {
+        headers: { 'Content-Type': 'application/json', ...corsHeaders }
+      });
+    }
+    
+    if (pathname === '/sw.js') {
+      return new Response(getServiceWorker(), {
+        headers: { 'Content-Type': 'application/javascript', ...corsHeaders }
+      });
+    }
+    
+    if (pathname === '/icon.svg') {
+      return new Response(getIconSvg(), {
+        headers: { 'Content-Type': 'image/svg+xml', ...corsHeaders }
+      });
+    }
+    
+    if (pathname === '/icon-192.png') {
+      const icon = getIcon(192);
+      if (icon) {
+        return new Response(icon, {
+          headers: { 'Content-Type': 'image/png', ...corsHeaders }
+        });
+      }
+      // Fallback to SVG
+      return new Response(getIconSvg(), {
+        headers: { 'Content-Type': 'image/svg+xml', ...corsHeaders }
+      });
+    }
+    
+    if (pathname === '/icon-512.png') {
+      const icon = getIcon(512);
+      if (icon) {
+        return new Response(icon, {
+          headers: { 'Content-Type': 'image/png', ...corsHeaders }
+        });
+      }
+      // Fallback to SVG
+      return new Response(getIconSvg(), {
+        headers: { 'Content-Type': 'image/svg+xml', ...corsHeaders }
       });
     }
     
@@ -1291,6 +1407,12 @@ console.log(`Server running at http://localhost:${PORT}?token=${webToken}`);
   
   const agents = listAgentsFromCore();
   console.log(`[Server] Loaded ${agents.length} agents: ${agents.map(a => a.name).join(', ')}`);
+  
+  console.log('[Server] Restoring persisted sessions...');
+  const restoredCount = await restorePersistedSessions(config);
+  if (restoredCount > 0) {
+    console.log(`[Server] Restored ${restoredCount} sessions from persistence`);
+  }
   
   console.log('[Server] Starting background agents...');
   await startBackgroundAgents(config);

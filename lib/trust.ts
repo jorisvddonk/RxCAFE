@@ -29,6 +29,14 @@ export class TrustDatabase {
     this.db = new Database(dbPath);
     this.initializeSchema();
   }
+  
+  getDatabase(): Database {
+    return this.db;
+  }
+  
+  getDbPath(): string {
+    return this.dbPath;
+  }
 
   private initializeSchema(): void {
     // Create trusted_clients table (for API auth)

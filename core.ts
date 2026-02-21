@@ -233,14 +233,14 @@ export async function createSession(
     },
     
     persistState: async (): Promise<void> => {
-      if (sessionStore && isBackground) {
-        await sessionStore.saveSession(id, agentId, true, sessionConfig, session.systemPrompt);
+      if (sessionStore) {
+        await sessionStore.saveSession(id, agentId, isBackground, sessionConfig, session.systemPrompt);
         await sessionStore.saveHistory(id, session.history);
       }
     },
     
     loadState: async (): Promise<void> => {
-      if (sessionStore && isBackground) {
+      if (sessionStore) {
         const savedHistory = await sessionStore.loadHistory(id);
         session.history.length = 0;
         session.history.push(...savedHistory);
@@ -261,8 +261,17 @@ export async function createSession(
     }
   });
   
-  if (isBackground && sessionStore) {
-    await sessionStore.saveSession(id, agentId, true, sessionConfig, session.systemPrompt);
+  // Pass user messages from inputStream to outputStream for history
+  inputStream.subscribe({
+    next: (chunk) => {
+      if (chunk.contentType === 'text' && chunk.annotations['chat.role'] === 'user') {
+        outputStream.next(chunk);
+      }
+    }
+  });
+  
+  if (sessionStore) {
+    await sessionStore.saveSession(id, agentId, isBackground, sessionConfig, session.systemPrompt);
   }
   
   await agent.initialize(agentContext);
@@ -281,7 +290,7 @@ export function deleteSession(sessionId: string): boolean {
     session.pipelineSubscription.unsubscribe();
   }
   
-  if (sessionStore && session?.isBackground) {
+  if (sessionStore) {
     sessionStore.deleteSession(sessionId).catch(err => {
       console.error(`Failed to delete session ${sessionId} from store:`, err);
     });
@@ -300,6 +309,52 @@ export function listActiveSessions(): Array<{ id: string; agentName: string; isB
     agentName: s.agentName,
     isBackground: s.isBackground,
   }));
+}
+
+// =============================================================================
+// Session Persistence
+// =============================================================================
+
+export async function restorePersistedSessions(config: CoreConfig): Promise<number> {
+  if (!sessionStore) return 0;
+  
+  const persistedSessions = await sessionStore.listAllSessions();
+  let restored = 0;
+  
+  for (const persisted of persistedSessions) {
+    if (sessions.has(persisted.id)) continue;
+    
+    const agent = getAgent(persisted.agentName);
+    if (!agent) {
+      console.log(`[Core] Skipping persisted session ${persisted.id}: agent ${persisted.agentName} not found`);
+      continue;
+    }
+    
+    try {
+      const sessionData = await sessionStore.loadSession(persisted.id);
+      if (!sessionData) continue;
+      
+      console.log(`[Core] Restoring session: ${persisted.id} (${persisted.agentName})`);
+      
+      const session = await createSession(config, {
+        agentId: persisted.agentName,
+        isBackground: persisted.isBackground,
+        sessionId: persisted.id,
+        ...sessionData.config,
+        systemPrompt: sessionData.systemPrompt || undefined,
+      });
+      
+      if (session._agentContext) {
+        await session._agentContext.loadState();
+      }
+      
+      restored++;
+    } catch (err) {
+      console.error(`[Core] Failed to restore session ${persisted.id}:`, err);
+    }
+  }
+  
+  return restored;
 }
 
 // =============================================================================

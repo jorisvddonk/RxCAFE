@@ -1,6 +1,6 @@
 /**
  * RXCAFE Session Store
- * SQLite persistence for background agent sessions
+ * SQLite persistence for all sessions
  */
 
 import { Database } from 'bun:sqlite';
@@ -44,6 +44,10 @@ export class SessionStore {
     
     this.db.run(`
       CREATE INDEX IF NOT EXISTS idx_agent_sessions_agent_name ON agent_sessions(agent_name)
+    `);
+    
+    this.db.run(`
+      CREATE INDEX IF NOT EXISTS idx_agent_sessions_updated_at ON agent_sessions(updated_at)
     `);
   }
   
@@ -130,6 +134,23 @@ export class SessionStore {
     stmt.finalize();
   }
   
+  async listAllSessions(): Promise<Array<{ id: string; agentName: string; isBackground: boolean; updatedAt: number }>> {
+    const stmt = this.db.prepare(`
+      SELECT id, agent_name, is_background, updated_at FROM agent_sessions
+      ORDER BY updated_at DESC
+    `);
+    
+    const results = stmt.all() as { id: string; agent_name: string; is_background: number; updated_at: number }[];
+    stmt.finalize();
+    
+    return results.map(r => ({
+      id: r.id,
+      agentName: r.agent_name,
+      isBackground: r.is_background === 1,
+      updatedAt: r.updated_at,
+    }));
+  }
+  
   async listBackgroundSessions(): Promise<Array<{ id: string; agentName: string }>> {
     const stmt = this.db.prepare(`
       SELECT id, agent_name FROM agent_sessions WHERE is_background = 1
@@ -162,5 +183,16 @@ export class SessionStore {
       config: JSON.parse(result.config_json),
       systemPrompt: result.system_prompt,
     };
+  }
+  
+  async cleanupOldSessions(maxAge: number = 7 * 24 * 60 * 60 * 1000): Promise<number> {
+    const cutoff = Date.now() - maxAge;
+    const stmt = this.db.prepare(`
+      DELETE FROM agent_sessions 
+      WHERE is_background = 0 AND updated_at < ?
+    `);
+    const result = stmt.run(cutoff);
+    stmt.finalize();
+    return result.changes;
   }
 }
