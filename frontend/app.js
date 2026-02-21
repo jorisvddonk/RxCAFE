@@ -107,7 +107,6 @@ class RXCafeChat {
     cacheElements() {
         this.backendInfoEl = document.getElementById('backend-info');
         this.newSessionBtn = document.getElementById('new-session-btn');
-        this.sessionSelect = document.getElementById('session-select');
         this.messagesEl = document.getElementById('messages');
         this.messageInput = document.getElementById('message-input');
         this.sendBtn = document.getElementById('send-btn');
@@ -150,8 +149,22 @@ class RXCafeChat {
         this.sessionList = document.getElementById('session-list');
         this.manageSessionsBtn = document.getElementById('manage-sessions-btn');
         this.sessionsCloseBtn = document.getElementById('sessions-close-btn');
+
+        // Sessions sidebar elements
+        this.sessionsSidebar = document.getElementById('sessions-sidebar');
+        this.sessionsSidebarOverlay = document.getElementById('sessions-sidebar-overlay');
+        this.sessionsSidebarToggleBtn = document.getElementById('sessions-sidebar-toggle-btn');
+        this.sessionsSidebarCloseBtn = document.getElementById('sessions-sidebar-close-btn');
+        this.sidebarSessionList = document.getElementById('sidebar-session-list');
+        this.sidebarNewSessionBtn = document.getElementById('sidebar-new-session-btn');
+
+        // Sidebar menu elements
+        this.sidebarMenu = document.getElementById('sidebar-menu');
+        this.sidebarMenuRename = document.getElementById('sidebar-menu-rename');
+        this.sidebarMenuDelete = document.getElementById('sidebar-menu-delete');
+        this.sidebarMenuSessionId = null;
     }
-    
+
     bindEvents() {
         this.newSessionBtn.addEventListener('click', () => this.showBackendModal());
         this.createSessionBtn.addEventListener('click', () => this.createSession());
@@ -187,14 +200,6 @@ class RXCafeChat {
             }
         });
         
-        // Session select change
-        this.sessionSelect.addEventListener('change', () => {
-            const selectedSessionId = this.sessionSelect.value;
-            if (selectedSessionId && selectedSessionId !== this.sessionId) {
-                this.switchToSession(selectedSessionId);
-            }
-        });
-        
         // Context menu actions
         this.contextTrust.addEventListener('click', () => this.toggleTrust(true));
         this.contextUntrust.addEventListener('click', () => this.toggleTrust(false));
@@ -210,6 +215,33 @@ class RXCafeChat {
         // Sessions management events
         this.manageSessionsBtn.addEventListener('click', () => this.showSessionsModal());
         this.sessionsCloseBtn.addEventListener('click', () => this.hideSessionsModal());
+
+        // Sessions sidebar events
+        this.sessionsSidebarToggleBtn.addEventListener('click', () => this.toggleSessionsSidebar());
+        this.sessionsSidebarCloseBtn.addEventListener('click', () => this.hideSessionsSidebar());
+        if (this.sessionsSidebarOverlay) {
+            this.sessionsSidebarOverlay.addEventListener('click', () => this.hideSessionsSidebar());
+        }
+        this.sidebarNewSessionBtn.addEventListener('click', () => {
+            this.hideSessionsSidebar();
+            this.showBackendModal();
+        });
+
+        // Sidebar menu events
+        this.sidebarMenuRename.addEventListener('click', () => this.renameSessionFromMenu());
+        this.sidebarMenuDelete.addEventListener('click', () => this.deleteSessionFromMenu());
+        
+        // Close menus on click outside
+        document.addEventListener('click', (e) => {
+            if (this.sidebarMenu.style.display === 'block' && !e.target.closest('.sidebar-session-more-btn') && !this.sidebarMenu.contains(e.target)) {
+                this.hideSidebarMenu();
+            }
+        });
+
+        // Initial sidebar state based on screen width
+        if (window.innerWidth > 800) {
+            this.showSessionsSidebar();
+        }
     }
     
     hideContextMenuOnClick() {
@@ -379,7 +411,10 @@ class RXCafeChat {
             
             if (data.sessions) {
                 this.knownSessions = data.sessions;
-                this.updateSessionSelect();
+                
+                // Render sidebar list automatically if sessions exist
+                this.renderSidebarSessionList();
+
                 if (this.sessionsModal.style.display === 'flex') {
                     console.log('[RXCAFE] Updating session list in modal');
                     this.renderSessionList();
@@ -396,23 +431,6 @@ class RXCafeChat {
         } catch (error) {
             console.error('Failed to load sessions:', error);
         }
-    }
-    
-    updateSessionSelect() {
-        if (this.knownSessions.length === 0) {
-            this.sessionSelect.style.display = 'none';
-            return;
-        }
-        
-        this.sessionSelect.style.display = 'inline-block';
-        this.sessionSelect.innerHTML = '<option value="">Sessions</option>' +
-            this.knownSessions.map(s => {
-                const isCurrent = s.id === this.sessionId;
-                const displayName = s.displayName || s.agentName;
-                const bg = s.isBackground ? ' [bg]' : '';
-                const shortId = s.id.length > 20 ? '...' + s.id.slice(-6) : s.id;
-                return `<option value="${s.id}" ${isCurrent ? 'selected' : ''}>${displayName}${bg} (${shortId})</option>`;
-            }).join('');
     }
     
     async switchToSession(sessionId) {
@@ -458,8 +476,8 @@ class RXCafeChat {
                 
                 this.messageInput.disabled = false;
                 this.sendBtn.disabled = false;
-                this.updateSessionSelect();
                 this.updateInspector();
+                this.renderSidebarSessionList();
 
                 // Connect SSE stream for live updates
                 this.connectStream(sessionId);
@@ -500,7 +518,11 @@ class RXCafeChat {
                         const session = this.knownSessions.find(s => s.id === this.sessionId);
                         if (session) {
                             session.displayName = newName;
-                            this.updateSessionSelect();
+                            
+                            // Update Sidebar if visible
+                            if (this.sessionsSidebar.style.display === 'flex') {
+                                this.renderSidebarSessionList();
+                            }
                             
                             // Update header info if it's the current session
                             const info = [];
@@ -657,7 +679,6 @@ class RXCafeChat {
                         isBackground: data.isBackground
                     });
                 }
-                this.updateSessionSelect();
                 
                 const info = [];
                 info.push(this.agentName);
@@ -1130,21 +1151,38 @@ class RXCafeChat {
     }
     
     toggleInspector() {
-        this.inspectorVisible = !this.inspectorVisible;
-        this.inspectorPanel.style.display = this.inspectorVisible ? 'flex' : 'none';
-        if (this.inspectorOverlay) {
-            this.inspectorOverlay.style.display = this.inspectorVisible ? 'block' : 'none';
-        }
-        if (this.inspectorVisible) {
-            this.updateInspector();
+        const isVisible = this.inspectorPanel.classList.contains('visible');
+        if (isVisible) {
+            this.hideInspector();
+        } else {
+            this.showInspector();
         }
     }
-    
+
+    showInspector() {
+        this.inspectorVisible = true;
+        this.inspectorPanel.style.display = 'flex';
+        setTimeout(() => {
+            this.inspectorPanel.classList.add('visible');
+        }, 10);
+        if (window.innerWidth <= 800 && this.inspectorOverlay) {
+            this.inspectorOverlay.style.display = 'block';
+        }
+        this.updateInspector();
+    }
+
     hideInspector() {
         this.inspectorVisible = false;
-        this.inspectorPanel.style.display = 'none';
-        if (this.inspectorOverlay) {
-            this.inspectorOverlay.style.display = 'none';
+        this.inspectorPanel.classList.remove('visible');
+        if (window.innerWidth <= 800) {
+            if (this.inspectorOverlay) {
+                this.inspectorOverlay.style.display = 'none';
+            }
+            setTimeout(() => {
+                if (!this.inspectorPanel.classList.contains('visible')) {
+                    this.inspectorPanel.style.display = 'none';
+                }
+            }, 300);
         }
     }
 
@@ -1156,6 +1194,108 @@ class RXCafeChat {
 
     hideSessionsModal() {
         this.sessionsModal.style.display = 'none';
+    }
+
+    toggleSessionsSidebar() {
+        const isVisible = this.sessionsSidebar.classList.contains('visible');
+        if (isVisible) {
+            this.hideSessionsSidebar();
+        } else {
+            this.showSessionsSidebar();
+        }
+    }
+
+    showSessionsSidebar() {
+        this.sessionsSidebar.style.display = 'flex';
+        // Use a small timeout to ensure display: flex is applied before adding visible class for transition
+        setTimeout(() => {
+            this.sessionsSidebar.classList.add('visible');
+        }, 10);
+
+        if (window.innerWidth <= 800 && this.sessionsSidebarOverlay) {
+            this.sessionsSidebarOverlay.style.display = 'block';
+        }
+        this.renderSidebarSessionList();
+    }
+
+    hideSessionsSidebar() {
+        this.sessionsSidebar.classList.remove('visible');
+        
+        if (window.innerWidth <= 800) {
+            if (this.sessionsSidebarOverlay) {
+                this.sessionsSidebarOverlay.style.display = 'none';
+            }
+            // On mobile, hide display after transition
+            setTimeout(() => {
+                if (!this.sessionsSidebar.classList.contains('visible')) {
+                    this.sessionsSidebar.style.display = 'none';
+                }
+            }, 300);
+        }
+        // On desktop we keep it display: flex but transform handles it
+    }
+
+    showSidebarMenu(e, sessionId) {
+        e.stopPropagation();
+        this.sidebarMenuSessionId = sessionId;
+        this.sidebarMenu.style.display = 'block';
+        
+        // Position relative to the button
+        const rect = e.target.getBoundingClientRect();
+        this.sidebarMenu.style.left = `${rect.left}px`;
+        this.sidebarMenu.style.top = `${rect.bottom + window.scrollY}px`;
+    }
+
+    hideSidebarMenu() {
+        this.sidebarMenu.style.display = 'none';
+        this.sidebarMenuSessionId = null;
+    }
+
+    async renameSessionFromMenu() {
+        const sessionId = this.sidebarMenuSessionId;
+        this.hideSidebarMenu();
+        if (sessionId) {
+            await this.renameSession(sessionId);
+        }
+    }
+
+    async deleteSessionFromMenu() {
+        const sessionId = this.sidebarMenuSessionId;
+        this.hideSidebarMenu();
+        if (sessionId) {
+            await this.deleteSession(sessionId);
+        }
+    }
+
+    renderSidebarSessionList() {
+        if (this.knownSessions.length === 0) {
+            this.sidebarSessionList.innerHTML = '<p>No sessions found.</p>';
+            return;
+        }
+
+        this.sidebarSessionList.innerHTML = this.knownSessions.map(s => {
+            const isCurrent = s.id === this.sessionId;
+            const displayName = s.displayName || s.agentName;
+            const shortId = s.id.length > 20 ? '...' + s.id.slice(-6) : s.id;
+            
+            return `
+                <div class="sidebar-session-item ${isCurrent ? 'active' : ''}" onclick="chat.switchToSessionFromSidebar('${s.id}')">
+                    <div class="sidebar-session-info">
+                        <div class="sidebar-session-name">${displayName}${s.isBackground ? ' [bg]' : ''}</div>
+                        <div class="sidebar-session-meta">${s.agentName} • ${shortId}</div>
+                    </div>
+                    <button class="sidebar-session-more-btn" onclick="chat.showSidebarMenu(event, '${s.id}')">⋮</button>
+                </div>
+            `;
+        }).join('');
+    }
+
+    async switchToSessionFromSidebar(sessionId) {
+        if (sessionId === this.sessionId) return;
+        await this.switchToSession(sessionId);
+        if (window.innerWidth <= 800) {
+            this.hideSessionsSidebar();
+        }
     }
 
     renderSessionList() {
@@ -1217,8 +1357,13 @@ class RXCafeChat {
                 // The update will come back via SSE or be handled by addRawChunk if it's the current session
                 if (session) {
                     session.displayName = newName;
+                    
+                    // Update Sidebar if visible
+                    if (this.sessionsSidebar.style.display === 'flex') {
+                        this.renderSidebarSessionList();
+                    }
+
                     this.renderSessionList();
-                    this.updateSessionSelect();
                 }
             } else {
                 this.showError(data.message || 'Failed to rename session');
@@ -1251,6 +1396,12 @@ class RXCafeChat {
                     this.disconnectStream();
                 }
                 await this.loadSessions();
+                
+                // Update Sidebar if visible
+                if (this.sessionsSidebar.style.display === 'flex') {
+                    this.renderSidebarSessionList();
+                }
+
                 console.log('[RXCAFE] Session list updated after delete');
             } else {
                 this.showError(data.message || 'Failed to delete session');
@@ -1268,7 +1419,11 @@ class RXCafeChat {
             const session = this.knownSessions.find(s => s.id === this.sessionId);
             if (session) {
                 session.displayName = newName;
-                this.updateSessionSelect();
+                
+                // Update Sidebar if visible
+                if (this.sessionsSidebar.style.display === 'flex') {
+                    this.renderSidebarSessionList();
+                }
             }
         }
 

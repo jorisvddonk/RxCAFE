@@ -16,58 +16,89 @@
 </head>
 <body>
     <div id="app">
-        <header class="header">
-            <h1>RXCAFE Chat</h1>
-            <div class="header-info">
-                <select id="session-select" class="session-select" style="display: none;">
-                    <option value="">Sessions</option>
-                </select>
-                <span id="backend-info">No backend</span>
-                <button id="inspector-toggle-btn" class="btn btn-secondary" title="Toggle inspector">🔍</button>
-                <button id="theme-toggle-btn" class="btn btn-secondary" title="Toggle theme">🌙</button>
-                <button id="new-session-btn" class="btn btn-secondary">New Session</button>
-                <button id="manage-sessions-btn" class="btn btn-secondary">Manage Sessions</button>
+        <!-- Sessions Sidebar (Left) -->
+        <div id="sessions-sidebar-overlay" class="sidebar-overlay" style="display: none;"></div>
+        <aside id="sessions-sidebar" class="sidebar sidebar-left" style="display: none;">
+            <div class="sidebar-header">
+                <h3>Sessions</h3>
+                <button id="sessions-sidebar-close-btn" class="btn btn-secondary btn-small">✕</button>
             </div>
-        </header>
-        
-        <main class="chat-container">
-            <div id="messages" class="messages">
-                <div class="welcome-message">
-                    <h2>Welcome to RXCAFE Chat</h2>
-                    <p>A reactive chat application built with the RXCAFE architecture.</p>
-                    <p>Click "New Session" to start chatting with your preferred LLM backend.</p>
-                    <div class="slash-commands">
-                        <h3>Available Commands:</h3>
-                        <code>/web &lt;URL&gt;</code> - Fetch web content (untrusted by default)
+            <div class="sidebar-content">
+                <div id="sidebar-session-list" class="sidebar-session-list">
+                    <p>Loading sessions...</p>
+                </div>
+            </div>
+            <div class="sidebar-actions">
+                <button id="sidebar-new-session-btn" class="btn btn-primary btn-full">New Session</button>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <div class="main-content">
+            <header class="header">
+                <div class="header-left">
+                    <button id="sessions-sidebar-toggle-btn" class="btn btn-secondary" title="Toggle sessions">📱</button>
+                    <h1>RXCAFE Chat</h1>
+                </div>
+                <div class="header-info">
+                    <span id="backend-info">No backend</span>
+                    <button id="inspector-toggle-btn" class="btn btn-secondary" title="Toggle inspector">🔍</button>
+                    <button id="theme-toggle-btn" class="btn btn-secondary" title="Toggle theme">🌙</button>
+                    <button id="new-session-btn" class="btn btn-secondary" title="New Session">
+                        <span class="btn-icon">+</span>
+                        <span class="btn-text">New Session</span>
+                    </button>
+                    <button id="manage-sessions-btn" class="btn btn-secondary" title="Manage Sessions">
+                        <span class="btn-icon">⚙️</span>
+                        <span class="btn-text">Manage Sessions</span>
+                    </button>
+                </div>
+            </header>
+            
+            <main class="chat-container">
+                <div id="messages" class="messages">
+                    <div class="welcome-message">
+                        <h2>Welcome to RXCAFE Chat</h2>
+                        <p>A reactive chat application built with the RXCAFE architecture.</p>
+                        <p>Click "New Session" to start chatting with your preferred LLM backend.</p>
+                        <div class="slash-commands">
+                            <h3>Available Commands:</h3>
+                            <code>/web &lt;URL&gt;</code> - Fetch web content (untrusted by default)
+                        </div>
                     </div>
                 </div>
-            </div>
-            
-            <div class="input-container">
-                <div class="input-wrapper">
-                    <textarea 
-                        id="message-input" 
-                        placeholder="Type your message or use /web URL..."
-                        rows="1"
-                        disabled
-                    ></textarea>
-                    <button id="send-btn" class="btn btn-primary" disabled>
-                        Send
-                    </button>
-                    <button id="abort-btn" class="btn btn-danger" style="display: none;">
-                        Stop
-                    </button>
+                
+                <div class="input-container">
+                    <div class="input-wrapper">
+                        <textarea 
+                            id="message-input" 
+                            placeholder="Type your message or use /web URL..."
+                            rows="1"
+                            disabled
+                        ></textarea>
+                        <button id="send-btn" class="btn btn-primary" disabled>
+                            Send
+                        </button>
+                        <button id="abort-btn" class="btn btn-danger" style="display: none;">
+                            Stop
+                        </button>
+                    </div>
                 </div>
-            </div>
-        </main>
-        
-        <div id="inspector-overlay" class="inspector-overlay" style="display: none;"></div>
-        <aside id="inspector-panel" class="inspector-panel" style="display: none;">
-            <div class="inspector-header">
+            </main>
+            
+            <footer class="footer">
+                <span>Powered by RXCAFE • Supports KoboldCPP & Ollama • Web content requires trust</span>
+            </footer>
+        </div>
+
+        <!-- Inspector Sidebar (Right) -->
+        <div id="inspector-overlay" class="sidebar-overlay" style="display: none;"></div>
+        <aside id="inspector-panel" class="sidebar sidebar-right" style="display: none;">
+            <div class="sidebar-header">
                 <h3>Inspector</h3>
                 <button id="inspector-close-btn" class="btn btn-secondary btn-small">✕</button>
             </div>
-            <div class="inspector-content">
+            <div class="sidebar-content">
                 <div class="inspector-section">
                     <h4>Session</h4>
                     <pre id="inspector-session">No session</pre>
@@ -78,10 +109,6 @@
                 </div>
             </div>
         </aside>
-        
-        <footer class="footer">
-            <span>Powered by RXCAFE • Supports KoboldCPP & Ollama • Web content requires trust</span>
-        </footer>
     </div>
     
     <!-- Backend Selection Modal -->
@@ -145,13 +172,6 @@
         </div>
     </div>
     
-    <!-- Context Menu for Chunks -->
-    <div id="context-menu" class="context-menu" style="display: none;">
-        <div class="context-menu-item" id="context-trust">Trust Chunk</div>
-        <div class="context-menu-item" id="context-untrust">Untrust Chunk</div>
-        <div class="context-menu-item" id="context-copy">Copy Content</div>
-    </div>
-    
     <!-- Sessions Management Modal -->
     <div id="sessions-modal" class="modal" style="display: none;">
         <div class="modal-content">
@@ -163,6 +183,19 @@
                 <button id="sessions-close-btn" class="btn btn-secondary">Close</button>
             </div>
         </div>
+    </div>
+
+    <!-- Sidebar Session Menu -->
+    <div id="sidebar-menu" class="sidebar-menu" style="display: none;">
+        <div class="sidebar-menu-item" id="sidebar-menu-rename">Rename</div>
+        <div class="sidebar-menu-item danger" id="sidebar-menu-delete">Delete</div>
+    </div>
+
+    <!-- Context Menu for Chunks -->
+    <div id="context-menu" class="context-menu" style="display: none;">
+        <div class="context-menu-item" id="context-trust">Trust Chunk</div>
+        <div class="context-menu-item" id="context-untrust">Untrust Chunk</div>
+        <div class="context-menu-item" id="context-copy">Copy Content</div>
     </div>
     
     <script>
