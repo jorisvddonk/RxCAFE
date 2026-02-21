@@ -217,7 +217,8 @@ export async function createSession(
     sessionConfig,
     systemPrompt: session.systemPrompt,
     trustedChunks: session.trustedChunks,
-    callbacks: null,
+    get callbacks() { return session.callbacks; },
+    set callbacks(val) { session.callbacks = val; },
     
     createEvaluator: (backend: LLMBackend, model?: string, params?: LLMParams): AgentEvaluator => {
       const evaluator = createEvaluator(backend, config, model, { ...options?.llmParams, ...params });

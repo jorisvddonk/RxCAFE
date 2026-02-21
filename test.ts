@@ -11,7 +11,8 @@
 
 import { 
   getDefaultConfig, 
-  createSession, 
+  createSession,
+  loadAgentsFromDisk,
   addChunkToSession,
   type Session,
   type CoreConfig,
@@ -94,18 +95,26 @@ class TestRunner {
   private outputChunks: Chunk[] = [];
   private errors: Error[] = [];
   
-  constructor(options: TestOptions) {
+  static async create(options: TestOptions): Promise<TestRunner> {
     const config = getDefaultConfig();
     if (options.backend) {
       config.backend = options.backend as 'ollama' | 'kobold';
     }
     
-    this.options = options;
-    this.session = createSession(config, options.backend as any, options.model);
+    await loadAgentsFromDisk();
     
-    this.session.outputStream.subscribe({
+    const session = await createSession(config, {
+      backend: options.backend as 'ollama' | 'kobold',
+      model: options.model,
+    });
+    
+    const runner = new TestRunner();
+    runner.options = options;
+    runner.session = session;
+    
+    session.outputStream.subscribe({
       next: (chunk) => {
-        this.outputChunks.push(chunk);
+        runner.outputChunks.push(chunk);
         if (options.verbose) {
           const role = chunk.annotations['chat.role'] || chunk.producer;
           const preview = chunk.contentType === 'text' 
@@ -116,15 +125,19 @@ class TestRunner {
       }
     });
     
-    this.session.errorStream.subscribe({
+    session.errorStream.subscribe({
       next: (err) => {
-        this.errors.push(err);
+        runner.errors.push(err);
         if (options.verbose) {
           console.log(`  [ERROR] ${err.message}`);
         }
       }
     });
+    
+    return runner;
   }
+  
+  private constructor() {}
   
   async runTest(test: TestCase): Promise<TestResult> {
     const startTime = Date.now();
@@ -390,7 +403,7 @@ async function runAllTests(tests: TestCase[], options: TestOptions, suiteName?: 
   console.log(`Tests: ${tests.length}`);
   console.log('');
   
-  const runner = new TestRunner(options);
+  const runner = await TestRunner.create(options);
   const results: TestResult[] = [];
   
   for (const test of tests) {

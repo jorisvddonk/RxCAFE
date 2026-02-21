@@ -7,7 +7,7 @@
  */
 
 import * as readline from 'readline';
-import { getDefaultConfig, createSession, getSession, addChunkToSession, type Session, type CoreConfig } from './core.js';
+import { getDefaultConfig, createSession, loadAgentsFromDisk, addChunkToSession, type Session, type CoreConfig } from './core.js';
 
 const args = process.argv.slice(2);
 
@@ -27,52 +27,58 @@ function parseArgs(): { backend?: string; model?: string } {
   return result;
 }
 
-const cliOptions = parseArgs();
-const config: CoreConfig = getDefaultConfig();
+async function main() {
+  const cliOptions = parseArgs();
+  const config: CoreConfig = getDefaultConfig();
 
-if (cliOptions.backend) {
-  config.backend = cliOptions.backend as 'kobold' | 'ollama';
-}
+  if (cliOptions.backend) {
+    config.backend = cliOptions.backend as 'kobold' | 'ollama';
+  }
 
-const session: Session = createSession(config, cliOptions.backend as any, cliOptions.model);
+  await loadAgentsFromDisk();
+  
+  const session: Session = await createSession(config, {
+    backend: cliOptions.backend as 'kobold' | 'ollama',
+    model: cliOptions.model,
+  });
 
-const rl = readline.createInterface({
-  input: process.stdin,
-  output: process.stdout
-});
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+  });
 
-console.log('RXCAFE CLI');
-console.log(`Backend: ${session.backend}`);
-if (session.model) console.log(`Model: ${session.model}`);
-console.log('');
-console.log('Commands:');
-console.log('  /system <prompt>  - Set system prompt');
-console.log('  /add <content>    - Add chunk to context');
-console.log('  /history          - Show conversation history');
-console.log('  /clear            - Clear history');
-console.log('  /quit             - Exit');
-console.log('');
-console.log('Type a message and press Enter to chat.');
-console.log('');
+  console.log('RXCAFE CLI');
+  console.log(`Backend: ${session.backend}`);
+  if (session.model) console.log(`Model: ${session.model}`);
+  console.log('');
+  console.log('Commands:');
+  console.log('  /system <prompt>  - Set system prompt');
+  console.log('  /add <content>    - Add chunk to context');
+  console.log('  /history          - Show conversation history');
+  console.log('  /clear            - Clear history');
+  console.log('  /quit             - Exit');
+  console.log('');
+  console.log('Type a message and press Enter to chat.');
+  console.log('');
 
-session.outputStream.subscribe({
-  next: (chunk) => {
-    const role = chunk.annotations['chat.role'];
-    if (role === 'assistant' && chunk.contentType === 'text') {
-      process.stdout.write('\n');
+  session.outputStream.subscribe({
+    next: (chunk) => {
+      const role = chunk.annotations['chat.role'];
+      if (role === 'assistant' && chunk.contentType === 'text') {
+        process.stdout.write('\n');
+      }
+    },
+    error: (err) => {
+      console.error('\n[Error]', err.message);
+      prompt();
     }
-  },
-  error: (err) => {
-    console.error('\n[Error]', err.message);
-    prompt();
-  }
-});
+  });
 
-session.errorStream.subscribe({
-  next: (err) => {
-    console.error('\n[Pipeline Error]', err.message);
-  }
-});
+  session.errorStream.subscribe({
+    next: (err) => {
+      console.error('\n[Pipeline Error]', err.message);
+    }
+  });
 
 function prompt() {
   rl.question('> ', async (input) => {
@@ -171,4 +177,10 @@ process.on('SIGINT', () => {
   console.log('\nGoodbye!');
   rl.close();
   process.exit(0);
+});
+}
+
+main().catch(err => {
+  console.error('Failed to start CLI:', err);
+  process.exit(1);
 });
