@@ -423,6 +423,16 @@ body {
 .message.assistant { align-self: flex-start; background-color: var(--assistant-bubble); color: var(--assistant-text); border-bottom-left-radius: 0.25rem; }
 .message.streaming { border-left: 3px solid var(--primary-color); }
 
+.message.image-message {
+    padding: 0.5rem;
+}
+
+.message.image-message .message-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
 .message-content { white-space: pre-wrap; word-wrap: break-word; line-height: 1.5; }
 
 /* Input Area */

@@ -60,6 +60,15 @@ export function createNullChunk(producer: string, annotations?: Record<string, a
   });
 }
 
+export function createBinaryChunk(data: Uint8Array, mimeType: string, producer: string, annotations?: Record<string, any>): Chunk {
+  return createChunk({
+    contentType: 'binary',
+    content: { data, mimeType },
+    producer,
+    annotations
+  });
+}
+
 export function annotateChunk(chunk: Chunk, key: string, value: any): Chunk {
   return {
     ...chunk,

@@ -853,6 +853,7 @@ async function handleGetHistory(sessionId: string): Promise<Response> {
   
   const historyChunks = session.history.filter(c => 
     c.contentType === 'text' || 
+    c.contentType === 'binary' || 
     (c.contentType === 'null' && c.annotations['session.name'])
   );
   
@@ -1093,7 +1094,7 @@ function handleSessionStream(sessionId: string): Response {
       // Subscribe to output stream
       const outputSub = session!.outputStream.subscribe({
         next: (chunk: Chunk) => {
-          if (chunk.contentType === 'text') {
+          if (chunk.contentType === 'text' || chunk.contentType === 'binary') {
             try {
               controller.enqueue(encoder.encode(`data: ${JSON.stringify({
                 type: 'chunk',

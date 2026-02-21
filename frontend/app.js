@@ -568,10 +568,11 @@ class RXCafeChat {
                     const assistantEl = (this.currentMessageEl?.dataset.pendingAssistant ? this.currentMessageEl : null) 
                                         || (this._lastAssistantEl?.dataset.pendingAssistant ? this._lastAssistantEl : null);
 
-                    if (role === 'assistant' && assistantEl) {
+                    if (role === 'assistant' && assistantEl && chunk.contentType === 'text') {
                         console.log(`[RXCAFE] SSE assistant chunk claimed by element elId=${assistantEl.dataset.elId}, registering id:`, chunk.id);
                         assistantEl.dataset.chunkId = chunk.id;
                         this.chunkElements.set(chunk.id, assistantEl);
+                        this.updateMessageContent(assistantEl, chunk.content);
                         delete assistantEl.dataset.pendingAssistant;
                         if (assistantEl === this._lastAssistantEl) this._lastAssistantEl = null;
                         this.addRawChunk(chunk);
@@ -633,14 +634,26 @@ class RXCafeChat {
 
         console.log(`[RXCAFE] renderChunk (from ${new Error().stack.split('\n')[2].trim()}) id=${chunk.id} role=${role} content="${String(chunk.content ?? '').slice(0,60)}"`);
         
+        if (chunk.contentType === 'binary') {
+            const mimeType = chunk.content?.mimeType || 'image/png';
+            if (mimeType && mimeType.startsWith('image/')) {
+                this.addImageMessage(role || 'assistant', chunk);
+            } else {
+                console.warn('[RXCAFE] Unsupported binary chunk', chunk);
+            }
+            return;
+        }
+
         if (isWeb) {
             this.addWebChunk(chunk);
         } else if (isSystem) {
             this.addSystemChunk(chunk, chunk.content);
-        } else if (role === 'user') {
-            this.addMessage('user', chunk.content, chunk.id);
-        } else if (role === 'assistant') {
-            this.addMessage('assistant', chunk.content, chunk.id);
+        } else if (chunk.contentType === 'text') {
+            if (role === 'user') {
+                this.addMessage('user', chunk.content, chunk.id);
+            } else if (role === 'assistant') {
+                this.addMessage('assistant', chunk.content, chunk.id);
+            }
         }
     }
     
@@ -800,9 +813,12 @@ class RXCafeChat {
             const decoder = new TextDecoder();
             let buffer = '';
             
-            // Remove loading indicator
+            // Remove loading indicator only if we haven't received content from SSE yet
             const contentEl = this.currentMessageEl.querySelector('.message-content');
-            contentEl.innerHTML = '';
+            if (contentEl && contentEl.querySelector('.loading-indicator')) {
+                console.log('[RXCAFE] Removing loading indicator');
+                contentEl.innerHTML = '';
+            }
             
             while (true) {
                 const { done, value } = await reader.read();
@@ -831,9 +847,22 @@ class RXCafeChat {
             this.isGenerating = false;
             if (this.currentMessageEl) {
                 this.currentMessageEl.classList.remove('streaming');
-                // Ensure we mark it as no longer active but still claimable by SSE
-                this.currentMessageEl.dataset.pendingAssistant = 'true';
-                this._lastAssistantEl = this.currentMessageEl;
+                
+                // If it's still pending (not claimed by SSE yet), keep it for a short window
+                // so a late-arriving SSE chunk can still claim it.
+                if (this.currentMessageEl.dataset.pendingAssistant) {
+                    this._lastAssistantEl = this.currentMessageEl;
+                    
+                    // If it has no content at all, maybe it was a tool-only turn.
+                    // We'll give it 5 seconds to be claimed, then remove if empty.
+                    const el = this.currentMessageEl;
+                    setTimeout(() => {
+                        if (el.parentElement && el.dataset.pendingAssistant && !el.dataset.chunkId) {
+                            console.log('[RXCAFE] Removing unclaimed empty assistant bubble');
+                            el.remove();
+                        }
+                    }, 5000);
+                }
             }
             this.currentMessageEl = null;
             this.currentContent = '';
@@ -1109,6 +1138,68 @@ class RXCafeChat {
             this.chunkElements.set(chunkId, messageEl);
         }
         this.messagesEl.appendChild(messageEl);
+        this.scrollToBottom();
+    }
+
+    addImageMessage(role, chunk) {
+        if (!chunk.content || !chunk.content.data) {
+            console.error('[RXCAFE] Binary chunk missing data', chunk);
+            return;
+        }
+        const { data, mimeType } = chunk.content;
+        
+        // Convert numeric array/object to Uint8Array
+        let uint8;
+        if (data instanceof Uint8Array) {
+            uint8 = data;
+        } else if (Array.isArray(data)) {
+            uint8 = new Uint8Array(data);
+        } else if (typeof data === 'object' && data !== null) {
+            // Check if it is a Buffer-like object with .data array
+            if (data.type === 'Buffer' && Array.isArray(data.data)) {
+                uint8 = new Uint8Array(data.data);
+            } else {
+                uint8 = new Uint8Array(Object.values(data));
+            }
+        } else {
+            console.error('[RXCAFE] Invalid image data format', data);
+            return;
+        }
+
+        const blob = new Blob([uint8], { type: mimeType });
+        const url = URL.createObjectURL(blob);
+        
+        const messageEl = document.createElement('div');
+        this._elCounter++;
+        messageEl.dataset.elId = this._elCounter;
+        messageEl.dataset.chunkId = chunk.id;
+        messageEl.className = `message ${role} image-message`;
+        
+        const contentEl = document.createElement('div');
+        contentEl.className = 'message-content';
+        
+        const img = document.createElement('img');
+        img.src = url;
+        img.alt = chunk.annotations?.['image.description'] || 'Generated image';
+        img.style.maxWidth = '100%';
+        img.style.borderRadius = '0.5rem';
+        img.style.display = 'block';
+        
+        // Revoke object URL when image is loaded to save memory
+        img.onload = () => URL.revokeObjectURL(url);
+        
+        contentEl.appendChild(img);
+        
+        if (chunk.annotations?.['image.description']) {
+            const caption = document.createElement('div');
+            caption.className = 'message-meta';
+            caption.textContent = chunk.annotations['image.description'];
+            contentEl.appendChild(caption);
+        }
+        
+        messageEl.appendChild(contentEl);
+        this.messagesEl.appendChild(messageEl);
+        this.chunkElements.set(chunk.id, messageEl);
         this.scrollToBottom();
     }
     
