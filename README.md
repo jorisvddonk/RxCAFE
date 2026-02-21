@@ -1,6 +1,6 @@
 # RXCAFE Chat
 
-A reactive chat application built with the RXCAFE architecture pattern, using Bun.js. Supports both KoboldCPP and Ollama LLM backends with advanced session management, background agents, and multi-modal support.
+A reactive chat application built with the RXCAFE architecture pattern, using Bun.js. Supports both KoboldCPP and Ollama LLM backends with advanced session management, modular agents, and multi-modal support.
 
 ## Features
 
@@ -9,13 +9,17 @@ A reactive chat application built with the RXCAFE architecture pattern, using Bu
 - **Advanced Session Management**: 
   - Permanent, collapsible sessions sidebar on desktop.
   - Full-screen mobile sidebar with safe-area optimizations.
+  - URL hash synchronization for easy bookmarking and navigation.
   - Rename and delete sessions directly from the UI.
   - Automatic session naming based on conversation context via `session.name` annotations.
-- **Agent System**: 
+- **Modular Agent System**: 
   - **Interactive Agents**: Created on-demand via the UI.
   - **Background Agents**: Persistent agents that start on server boot and can run scheduled tasks (e.g., `time-ticker`, `news-reporter`).
+  - **Declarative Pipelines**: Clean agent definitions using RxJS operators and higher-order evaluators.
   - **Custom Agent Paths**: Load agents from external directories via environment variables.
-- **Multi-modal Support**: Handle text and **binary chunks** (e.g., images) seamlessly in the chat.
+- **Multi-modal Support**: Handle text and **binary chunks** seamlessly.
+  - **Image Painter**: Generates and renders random pixel art.
+  - **Audio Generator**: Generates and plays back audio tones.
 - **Telegram Bot**: Fully integrated with session switching and trust management.
 - **Streaming Responses**: Real-time token streaming for both web and Telegram.
 - **Security & Trust**: Untrusted web content is filtered from LLM context until explicitly trusted by the user.
@@ -28,6 +32,7 @@ This app implements the RXCAFE pattern:
 - **Chunks** (`lib/chunk.ts`): Immutable data units (text, binary, or null) with producer IDs and annotations.
 - **Streams** (`lib/stream.ts`): RxJS-based reactive streams that process chunks through agent-defined pipelines.
 - **Agents** (`agents/`): Pipeline builders that subscribe to `inputStream` and emit to `outputStream`.
+- **Evaluators** (`evaluators/`, `lib/evaluator-utils.ts`): Encapsulated logic for specific tasks like sentiment analysis or standard chat completion.
 - **Persistence**: All sessions, configurations, and histories are saved to an SQLite database.
 - **Security**: Trust-based filtering prevents untrusted content from reaching evaluators.
 
@@ -110,7 +115,7 @@ bun start
 1. **Untrusted by Default**: Web content and external data are marked untrusted.
 2. **Stream Filtering**: Agents or the core pipeline filter out untrusted chunks before they reach LLM evaluators.
 3. **User in the Loop**: Users must explicitly click "Trust" on chunks to include them in the LLM's memory.
-4. **Binary Safety**: Binary chunks (like images) are rendered for users but excluded from text-only LLM context unless handled by a specific multi-modal evaluator.
+4. **Binary Safety**: Binary chunks (like images/audio) are rendered for users but excluded from text-only LLM context unless handled by a specific multi-modal evaluator.
 
 ## License
 
