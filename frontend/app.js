@@ -158,6 +158,10 @@ class RXCafeChat {
         this.sidebarSessionList = document.getElementById('sidebar-session-list');
         this.sidebarNewSessionBtn = document.getElementById('sidebar-new-session-btn');
 
+        // Sidebar global actions (mobile)
+        this.sidebarThemeToggleBtn = document.getElementById('sidebar-theme-toggle-btn');
+        this.sidebarManageSessionsBtn = document.getElementById('sidebar-manage-sessions-btn');
+
         // Sidebar menu elements
         this.sidebarMenu = document.getElementById('sidebar-menu');
         this.sidebarMenuRename = document.getElementById('sidebar-menu-rename');
@@ -226,6 +230,16 @@ class RXCafeChat {
             this.hideSessionsSidebar();
             this.showBackendModal();
         });
+
+        if (this.sidebarThemeToggleBtn) {
+            this.sidebarThemeToggleBtn.addEventListener('click', () => themeManager.toggleTheme());
+        }
+        if (this.sidebarManageSessionsBtn) {
+            this.sidebarManageSessionsBtn.addEventListener('click', () => {
+                this.hideSessionsSidebar();
+                this.showSessionsModal();
+            });
+        }
 
         // Sidebar menu events
         this.sidebarMenuRename.addEventListener('click', () => this.renameSessionFromMenu());

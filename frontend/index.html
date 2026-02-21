@@ -24,6 +24,12 @@
                 <button id="sessions-sidebar-close-btn" class="btn btn-secondary btn-small">✕</button>
             </div>
             <div class="sidebar-content">
+                <!-- Global actions moved here for mobile -->
+                <div class="sidebar-global-actions mobile-only">
+                    <button id="sidebar-theme-toggle-btn" class="btn btn-secondary" title="Toggle theme">🌙</button>
+                    <button id="sidebar-manage-sessions-btn" class="btn btn-secondary" title="Manage Sessions">⚙️ Manage</button>
+                </div>
+                
                 <div id="sidebar-session-list" class="sidebar-session-list">
                     <p>Loading sessions...</p>
                 </div>
@@ -43,12 +49,12 @@
                 <div class="header-info">
                     <span id="backend-info">No backend</span>
                     <button id="inspector-toggle-btn" class="btn btn-secondary" title="Toggle inspector">🔍</button>
-                    <button id="theme-toggle-btn" class="btn btn-secondary" title="Toggle theme">🌙</button>
-                    <button id="new-session-btn" class="btn btn-secondary" title="New Session">
+                    <button id="theme-toggle-btn" class="btn btn-secondary desktop-only" title="Toggle theme">🌙</button>
+                    <button id="new-session-btn" class="btn btn-secondary desktop-only" title="New Session">
                         <span class="btn-icon">+</span>
                         <span class="btn-text">New Session</span>
                     </button>
-                    <button id="manage-sessions-btn" class="btn btn-secondary" title="Manage Sessions">
+                    <button id="manage-sessions-btn" class="btn btn-secondary desktop-only" title="Manage Sessions">
                         <span class="btn-icon">⚙️</span>
                         <span class="btn-text">Manage Sessions</span>
                     </button>
