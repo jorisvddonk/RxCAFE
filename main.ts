@@ -510,7 +510,7 @@ async function initTelegramBot(): Promise<void> {
           const name = s.displayName || s.agentName;
           const current = sid === sessionId ? '✓ ' : '';
           const bg = s.isBackground ? ' ⚙️' : '';
-          return [{ text: `${current}${name}${bg}`, callbackData: `switch:${sid}` }];
+          return [{ text: `${current}${name}${bg}`, callback_data: `switch:${sid}` }];
         }).filter(b => b !== null) as any[][];
         
         await telegramBot!.sendMessage(chatId, `*Your Sessions:*\nSelect a session to switch:`, { 
@@ -563,7 +563,7 @@ async function initTelegramBot(): Promise<void> {
     });
     
     // Handle callback queries (trust buttons and session switcher)
-    telegramBot.onCallback(async (chatId, data, user) => {
+    telegramBot.onCallback(async (chatId, data, user, callbackId) => {
       if (data.startsWith('trust:')) {
         const parts = data.split(':');
         const chunkId = parts[1];
@@ -578,10 +578,12 @@ async function initTelegramBot(): Promise<void> {
         const result = toggleChunkTrust(session, chunkId, trusted);
         
         if (result) {
+          await telegramBot!.answerCallback(callbackId, trusted ? '✅ Trusted' : '❌ Untrusted');
           await telegramBot!.sendMessage(chatId, trusted ? '✅ Chunk trusted and added to LLM context' : '❌ Chunk untrusted');
         }
       } else if (data.startsWith('switch:')) {
         const targetSessionId = data.split(':')[1];
+        await telegramBot!.answerCallback(callbackId, '🔄 Switching...');
         await switchTelegramSession(chatId, targetSessionId);
       }
     });

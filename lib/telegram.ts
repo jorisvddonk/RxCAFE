@@ -57,7 +57,7 @@ export interface TelegramMessageEntity {
 }
 
 export type TelegramMessageHandler = (chatId: number, text: string, user: TelegramUser) => Promise<void>;
-export type TelegramCallbackHandler = (chatId: number, data: string, user: TelegramUser) => Promise<void>;
+export type TelegramCallbackHandler = (chatId: number, data: string, user: TelegramUser, callbackId: string) => Promise<void>;
 
 export class TelegramBot {
   private token: string;
@@ -286,7 +286,7 @@ export class TelegramBot {
 
     for (const handler of this.callbackHandlers) {
       try {
-        await handler(callback.message.chat.id, callback.data, callback.from);
+        await handler(callback.message.chat.id, callback.data, callback.from, callback.id);
       } catch (error) {
         console.error('Callback handler error:', error);
       }
