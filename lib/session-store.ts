@@ -105,7 +105,21 @@ export class SessionStore {
     `);
     
     for (const chunk of history) {
-      insertStmt.run(chunk.id, sessionId, JSON.stringify(chunk), chunk.timestamp);
+      // Handle binary data for JSON storage
+      let serializedChunk = chunk;
+      if (chunk.contentType === 'binary' && chunk.content && (chunk.content as any).data instanceof Uint8Array) {
+        const binaryContent = chunk.content as any;
+        serializedChunk = {
+          ...chunk,
+          content: {
+            ...binaryContent,
+            data: Buffer.from(binaryContent.data).toString('base64'),
+            _isBase64: true
+          }
+        };
+      }
+      
+      insertStmt.run(chunk.id, sessionId, JSON.stringify(serializedChunk), chunk.timestamp);
     }
     
     insertStmt.finalize();
@@ -125,7 +139,21 @@ export class SessionStore {
     const results = stmt.all(sessionId) as { chunk_json: string }[];
     stmt.finalize();
     
-    return results.map(r => JSON.parse(r.chunk_json) as Chunk);
+    return results.map(r => {
+      const chunk = JSON.parse(r.chunk_json) as Chunk;
+      // Restore binary data from Base64
+      if (chunk.contentType === 'binary' && chunk.content && (chunk.content as any)._isBase64) {
+        const binaryContent = chunk.content as any;
+        return {
+          ...chunk,
+          content: {
+            data: new Uint8Array(Buffer.from(binaryContent.data, 'base64')),
+            mimeType: binaryContent.mimeType
+          }
+        };
+      }
+      return chunk;
+    });
   }
   
   async deleteSession(sessionId: string): Promise<void> {
