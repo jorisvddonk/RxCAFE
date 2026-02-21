@@ -25,6 +25,7 @@ A reactive chat application built with the RXCAFE architecture pattern, using Bu
   - **Telegram Media**: Images and audio are delivered directly as photos and voice messages.
 - **Telegram Bot**: 
   - **Inline Keyboards**: Interactive session switcher via `/sessions`.
+  - **Auto-Subscriptions**: Receive automatic updates from specific sessions using `/subscribe <id>`. Subscriptions are persisted in SQLite.
   - **Sharing**: Use `/id` to get session IDs, `/join <id>` to continue web chats on mobile, and `/share` for web links.
   - **Automatic Cleanup**: Temporary "Thinking..." status messages are automatically deleted.
 - **Security & Trust**: Untrusted web content is filtered from LLM context until explicitly trusted.
@@ -84,6 +85,16 @@ You can seamlessly move conversations between the Web UI and Telegram:
 1.  **Web to Telegram**: Click the **🆔** icon in the Web header to copy the Session ID. In Telegram, type `/join [pasted-id]`.
 2.  **Telegram to Web**: Type `/share` in Telegram to get a direct browser link to your current session.
 3.  **Default Session**: New Telegram users start in the `default-telegram` session by default.
+
+### Telegram Auto-Subscriptions
+
+You can turn your Telegram bot into a real-time notification feed for specific sessions:
+
+- `/subscribe <session_id>`: Automatically receive all new messages and media from that session.
+- `/unsubscribe <session_id>`: Stop receiving automatic updates.
+- `/subscriptions`: List your active auto-subscriptions.
+
+Subscriptions are stored in the database and automatically restored when the server restarts. You can subscribe to multiple sessions simultaneously (e.g., your main chat and a background agent like `rss-summarizer`).
 
 ## Agents and External Paths
 

@@ -78,6 +78,65 @@ export class TrustDatabase {
     this.db.run(`
       CREATE INDEX IF NOT EXISTS idx_telegram_username ON trusted_telegram_users(username)
     `);
+
+    // Create telegram_subscriptions table
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS telegram_subscriptions (
+        chat_id INTEGER NOT NULL,
+        session_id TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (chat_id, session_id)
+      )
+    `);
+  }
+
+  /**
+   * Add a Telegram subscription
+   */
+  addTelegramSubscription(chatId: number, sessionId: string): void {
+    const now = Date.now();
+    const stmt = this.db.prepare(`
+      INSERT OR IGNORE INTO telegram_subscriptions (chat_id, session_id, created_at)
+      VALUES (?, ?, ?)
+    `);
+    stmt.run(chatId, sessionId, now);
+    stmt.finalize();
+  }
+
+  /**
+   * Remove a Telegram subscription
+   */
+  removeTelegramSubscription(chatId: number, sessionId: string): boolean {
+    const stmt = this.db.prepare(`
+      DELETE FROM telegram_subscriptions WHERE chat_id = ? AND session_id = ?
+    `);
+    const result = stmt.run(chatId, sessionId);
+    stmt.finalize();
+    return result.changes > 0;
+  }
+
+  /**
+   * List all subscriptions for a chat
+   */
+  listTelegramSubscriptions(chatId: number): string[] {
+    const stmt = this.db.prepare(`
+      SELECT session_id FROM telegram_subscriptions WHERE chat_id = ?
+    `);
+    const results = stmt.all(chatId) as { session_id: string }[];
+    stmt.finalize();
+    return results.map(r => r.session_id);
+  }
+
+  /**
+   * List all global subscriptions
+   */
+  listAllTelegramSubscriptions(): Array<{ chatId: number, sessionId: string }> {
+    const stmt = this.db.prepare(`
+      SELECT chat_id, session_id FROM telegram_subscriptions
+    `);
+    const results = stmt.all() as { chat_id: number, session_id: string }[];
+    stmt.finalize();
+    return results.map(r => ({ chatId: r.chat_id, sessionId: r.session_id }));
   }
 
   /**

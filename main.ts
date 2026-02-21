@@ -361,7 +361,8 @@ const telegramCurrentSession = new Map<number, string>();
 const telegramAllSessions = new Map<number, Set<string>>();
 
 // Map Telegram chat IDs to their active outputStream subscriptions
-const telegramSubscriptions = new Map<number, Subscription>();
+// Now stores a Map of sessionId -> Subscription for each chat
+const telegramSubscriptions = new Map<number, Map<string, Subscription>>();
 
 let telegramBot: TelegramBot | null = null;
 
@@ -468,6 +469,9 @@ async function initTelegramBot(): Promise<void> {
 /new [agent] - Create new session
 /sessions - List and switch sessions
 /join <id> - Join an existing session
+/subscribe <id> - Auto-receive updates from a session
+/unsubscribe <id> - Stop auto-updates
+/subscriptions - List auto-subscriptions
 /share - Get shareable link
 /id - Get current session ID
 /agents - List available agents
@@ -511,6 +515,53 @@ async function initTelegramBot(): Promise<void> {
         await telegramBot!.sendMessage(chatId, `✅ Joined session: \`${targetId}\`\nAgent: ${targetSession.agentName}\nName: ${targetSession.displayName || 'None'}`, { parseMode: 'Markdown' });
         
         ensureTelegramSubscription(chatId, targetSession);
+        return;
+      }
+
+      if (text === '/subscriptions') {
+        const subs = trustDb.listTelegramSubscriptions(chatId);
+        if (subs.length === 0) {
+          await telegramBot!.sendMessage(chatId, 'No active auto-subscriptions.');
+        } else {
+          const list = subs.map(sid => `• \`${sid}\``).join('\n');
+          await telegramBot!.sendMessage(chatId, `*Your Auto-Subscriptions:*\n\n${list}`, { parseMode: 'Markdown' });
+        }
+        return;
+      }
+
+      if (text.startsWith('/subscribe ')) {
+        const targetId = text.slice(11).trim();
+        trustDb.addTelegramSubscription(chatId, targetId);
+        
+        const targetSession = getSession(targetId);
+        if (targetSession) {
+          ensureTelegramSubscription(chatId, targetSession);
+          await telegramBot!.sendMessage(chatId, `✅ Subscribed to \`${targetId}\`. You will now receive updates automatically.`);
+        } else {
+          await telegramBot!.sendMessage(chatId, `✅ Subscribed to \`${targetId}\`. Updates will start once the session is active.`);
+        }
+        return;
+      }
+
+      if (text.startsWith('/unsubscribe ')) {
+        const targetId = text.slice(13).trim();
+        const success = trustDb.removeTelegramSubscription(chatId, targetId);
+        if (success) {
+          // If it's not the current session, we should unsubscribe the RxJS sub
+          if (sessionId !== targetId) {
+            const subsMap = telegramSubscriptions.get(chatId);
+            if (subsMap instanceof Map) {
+              const sub = subsMap.get(targetId);
+              if (sub) {
+                sub.unsubscribe();
+                subsMap.delete(targetId);
+              }
+            }
+          }
+          await telegramBot!.sendMessage(chatId, `✅ Unsubscribed from \`${targetId}\`.`);
+        } else {
+          await telegramBot!.sendMessage(chatId, `❌ Not subscribed to \`${targetId}\`.`);
+        }
         return;
       }
       
@@ -878,15 +929,14 @@ async function switchTelegramSession(chatId: number, targetSessionId: string): P
 }
 
 function ensureTelegramSubscription(chatId: number, session: Session) {
-  const existingSub = telegramSubscriptions.get(chatId);
+  let subsMap = telegramSubscriptions.get(chatId);
+  if (!subsMap) {
+    subsMap = new Map<string, Subscription>();
+    telegramSubscriptions.set(chatId, subsMap);
+  }
   
-  // Only resubscribe if the session has actually changed
-  // We'll store a custom property on the subscription to track the session ID
-  if (existingSub) {
-    if ((existingSub as any)._sessionId === session.id) {
-      return;
-    }
-    existingSub.unsubscribe();
+  if (subsMap.has(session.id)) {
+    return;
   }
 
   console.log(`[Telegram] Subscribing chat ${chatId} to session ${session.id} outputStream`);
@@ -966,8 +1016,7 @@ function ensureTelegramSubscription(chatId: number, session: Session) {
     }
   });
   
-  (sub as any)._sessionId = session.id;
-  telegramSubscriptions.set(chatId, sub);
+  subsMap.set(session.id, sub);
 }
 
 // =============================================================================
@@ -1770,7 +1819,19 @@ console.log(`Server running at http://localhost:${PORT}?token=${webToken}`);
   await startBackgroundAgents(config);
   
   // Initialize Telegram bot (if configured)
-  initTelegramBot().catch(console.error);
+  initTelegramBot().then(() => {
+    // Restore persistent Telegram auto-subscriptions
+    if (telegramBot) {
+      console.log('[Telegram] Restoring persistent auto-subscriptions...');
+      const allSubs = trustDb.listAllTelegramSubscriptions();
+      for (const sub of allSubs) {
+        const session = getSession(sub.sessionId);
+        if (session) {
+          ensureTelegramSubscription(sub.chatId, session);
+        }
+      }
+    }
+  }).catch(console.error);
 })();
 
 // Cleanup on exit
