@@ -26,6 +26,7 @@ import {
   createTextChunk,
   type Chunk
 } from './lib/chunk.js';
+import { connectedAgentStore } from './lib/connected-agents.js';
 import {
   getDefaultConfig,
   createSession,
@@ -263,6 +264,9 @@ const TRUST_DB_PATH = process.env.TRUST_DB_PATH || './rxcafe-trust.db';
 
 // Initialize trust database
 const trustDb = new TrustDatabase(TRUST_DB_PATH);
+
+// Initialize connected agents store
+connectedAgentStore.setTrustDatabase(trustDb);
 
 // Initialize session store
 const sessionStore = new SessionStore(trustDb.getDatabase());
@@ -1783,6 +1787,77 @@ const server = serve({
       const response = await handleAbort(sessionId);
       return addCors(response, corsHeaders);
     }
+
+    // Connected Agents API
+    if (pathname === '/api/connected-agents' && request.method === 'POST') {
+      const body = await request.json().catch(() => ({}));
+      const response = handleRegisterConnectedAgent(body);
+      return addCors(response, corsHeaders);
+    }
+
+    if (pathname.match(/^\/api\/connected-agents\/[^/]+$/) && request.method === 'DELETE') {
+      const agentId = pathname.split('/')[3];
+      const response = handleUnregisterConnectedAgent(agentId);
+      return addCors(response, corsHeaders);
+    }
+
+    if (pathname.match(/^\/api\/connected-agents\/[^/]+\/sessions$/) && request.method === 'GET') {
+      const agentId = pathname.split('/')[3];
+      const response = handleGetAgentSessions(agentId);
+      return addCors(response, corsHeaders);
+    }
+
+    if (pathname.match(/^\/api\/connected-agents\/[^/]+\/subscribe\/[^/]+$/) && request.method === 'POST') {
+      const parts = pathname.split('/');
+      const agentId = parts[3];
+      const sessionId = parts[5];
+      const response = handleAgentSubscribe(agentId, sessionId);
+      return addCors(response, corsHeaders);
+    }
+
+    if (pathname.match(/^\/api\/connected-agents\/[^/]+\/subscribe\/[^/]+$/) && request.method === 'DELETE') {
+      const parts = pathname.split('/');
+      const agentId = parts[3];
+      const sessionId = parts[5];
+      const response = handleAgentUnsubscribe(agentId, sessionId);
+      return addCors(response, corsHeaders);
+    }
+
+    if (pathname.match(/^\/api\/connected-agents\/[^/]+\/join\/[^/]+$/) && request.method === 'POST') {
+      const parts = pathname.split('/');
+      const agentId = parts[3];
+      const sessionId = parts[5];
+      const response = handleAgentJoin(agentId, sessionId);
+      return addCors(response, corsHeaders);
+    }
+
+    if (pathname.match(/^\/api\/connected-agents\/[^/]+\/join\/[^/]+$/) && request.method === 'DELETE') {
+      const parts = pathname.split('/');
+      const agentId = parts[3];
+      const sessionId = parts[5];
+      const response = handleAgentLeave(agentId, sessionId);
+      return addCors(response, corsHeaders);
+    }
+
+    if (pathname.match(/^\/api\/session\/[^/]+\/connected-agents$/) && request.method === 'GET') {
+      const sessionId = pathname.split('/')[3];
+      const response = handleGetSessionConnectedAgents(sessionId);
+      return addCors(response, corsHeaders);
+    }
+
+    // Connected agent stream (SSE)
+    if (pathname.match(/^\/api\/session\/[^/]+\/stream\/agent$/) && request.method === 'GET') {
+      const sessionId = pathname.split('/')[3];
+      const response = handleAgentSessionStream(request, sessionId);
+      return response;
+    }
+
+    // Produce chunk as connected agent
+    if (pathname.match(/^\/api\/session\/[^/]+\/agent-chunk$/) && request.method === 'POST') {
+      const sessionId = pathname.split('/')[3];
+      const response = await handleAgentProduceChunk(request, sessionId);
+      return addCors(response, corsHeaders);
+    }
     
     // 404
     return new Response(JSON.stringify({ error: 'Not found' }), {
@@ -1797,6 +1872,291 @@ function addCors(response: Response, corsHeaders: Record<string, string>): Respo
     response.headers.set(key, value);
   }
   return response;
+}
+
+// Connected Agents API Handlers
+
+function handleRegisterConnectedAgent(body: { name?: string; description?: string }): Response {
+  const name = body.name || 'Unnamed Agent';
+  const agent = connectedAgentStore.register(name, body.description);
+  
+  return new Response(JSON.stringify({
+    agentId: agent.id,
+    apiKey: agent.apiKey,
+    name: agent.name
+  }), {
+    headers: { 'Content-Type': 'application/json' }
+  });
+}
+
+function handleUnregisterConnectedAgent(agentId: string): Response {
+  const success = connectedAgentStore.unregister(agentId);
+  
+  if (!success) {
+    return new Response(JSON.stringify({ error: 'Agent not found' }), {
+      status: 404,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+  
+  return new Response(null, { status: 204 });
+}
+
+function handleGetAgentSessions(agentId: string): Response {
+  const agent = connectedAgentStore.getById(agentId);
+  
+  if (!agent) {
+    return new Response(JSON.stringify({ error: 'Agent not found' }), {
+      status: 404,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+  
+  const sessions = connectedAgentStore.getSessions(agentId);
+  
+  return new Response(JSON.stringify({
+    agentId,
+    sessions
+  }), {
+    headers: { 'Content-Type': 'application/json' }
+  });
+}
+
+function handleAgentSubscribe(agentId: string, sessionId: string): Response {
+  const agent = connectedAgentStore.getById(agentId);
+  
+  if (!agent) {
+    return new Response(JSON.stringify({ error: 'Agent not found' }), {
+      status: 404,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+  
+  const success = connectedAgentStore.subscribe(agentId, sessionId);
+  
+  if (!success) {
+    return new Response(JSON.stringify({ error: 'Session not found' }), {
+      status: 404,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+  
+  return new Response(JSON.stringify({ success: true }), {
+    headers: { 'Content-Type': 'application/json' }
+  });
+}
+
+function handleAgentUnsubscribe(agentId: string, sessionId: string): Response {
+  const agent = connectedAgentStore.getById(agentId);
+  
+  if (!agent) {
+    return new Response(JSON.stringify({ error: 'Agent not found' }), {
+      status: 404,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+  
+  const success = connectedAgentStore.unsubscribe(agentId, sessionId);
+  
+  if (!success) {
+    return new Response(JSON.stringify({ error: 'Not subscribed to this session' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+  
+  return new Response(JSON.stringify({ success: true }), {
+    headers: { 'Content-Type': 'application/json' }
+  });
+}
+
+function handleAgentJoin(agentId: string, sessionId: string): Response {
+  const agent = connectedAgentStore.getById(agentId);
+  
+  if (!agent) {
+    return new Response(JSON.stringify({ error: 'Agent not found' }), {
+      status: 404,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+  
+  const success = connectedAgentStore.join(agentId, sessionId);
+  
+  if (!success) {
+    return new Response(JSON.stringify({ error: 'Session not found' }), {
+      status: 404,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+  
+  return new Response(JSON.stringify({ success: true }), {
+    headers: { 'Content-Type': 'application/json' }
+  });
+}
+
+function handleAgentLeave(agentId: string, sessionId: string): Response {
+  const agent = connectedAgentStore.getById(agentId);
+  
+  if (!agent) {
+    return new Response(JSON.stringify({ error: 'Agent not found' }), {
+      status: 404,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+  
+  const success = connectedAgentStore.leave(agentId, sessionId);
+  
+  if (!success) {
+    return new Response(JSON.stringify({ error: 'Not joined to this session' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+  
+  return new Response(JSON.stringify({ success: true }), {
+    headers: { 'Content-Type': 'application/json' }
+  });
+}
+
+function handleGetSessionConnectedAgents(sessionId: string): Response {
+  const session = getSession(sessionId);
+  
+  if (!session) {
+    return new Response(JSON.stringify({ error: 'Session not found' }), {
+      status: 404,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+  
+  const agents = connectedAgentStore.getAgentsInSession(sessionId);
+  
+  return new Response(JSON.stringify({
+    sessionId,
+    agents
+  }), {
+    headers: { 'Content-Type': 'application/json' }
+  });
+}
+
+function handleAgentSessionStream(request: Request, sessionId: string): Response {
+  const apiKey = request.headers.get('X-API-Key');
+  
+  if (!apiKey) {
+    return new Response(JSON.stringify({ error: 'X-API-Key header required' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+  
+  const agent = connectedAgentStore.getByApiKey(apiKey);
+  
+  if (!agent) {
+    return new Response(JSON.stringify({ error: 'Invalid API key' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+  
+  if (!connectedAgentStore.canReadChunks(agent.id, sessionId)) {
+    return new Response(JSON.stringify({ error: 'Not subscribed to this session' }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+  
+  const session = getSession(sessionId);
+  
+  if (!session) {
+    return new Response(JSON.stringify({ error: 'Session not found' }), {
+      status: 404,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+  
+  const stream = new ReadableStream({
+    start(controller) {
+      const encoder = new TextEncoder();
+      
+      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'connected', agentId: agent.id, sessionId })}\n\n`));
+      
+      const sub = session.outputStream.subscribe({
+        next: (chunk: Chunk) => {
+          try {
+            controller.enqueue(encoder.encode(`event: chunk\ndata: ${JSON.stringify(chunk)}\n\n`));
+          } catch { /* controller closed */ }
+        },
+        error: (err: Error) => {
+          try {
+            controller.enqueue(encoder.encode(`event: error\ndata: ${JSON.stringify({ error: err.message })}\n\n`));
+          } catch { /* ignore */ }
+        }
+      });
+      
+      return () => sub.unsubscribe();
+    },
+    cancel() {}
+  });
+  
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive'
+    }
+  });
+}
+
+async function handleAgentProduceChunk(request: Request, sessionId: string): Promise<Response> {
+  const apiKey = request.headers.get('X-API-Key');
+  
+  if (!apiKey) {
+    return new Response(JSON.stringify({ error: 'X-API-Key header required' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+  
+  const agent = connectedAgentStore.getByApiKey(apiKey);
+  
+  if (!agent) {
+    return new Response(JSON.stringify({ error: 'Invalid API key' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+  
+  if (!connectedAgentStore.canProduceChunk(agent.id, sessionId)) {
+    return new Response(JSON.stringify({ error: 'Not joined to this session' }), {
+      status: 403,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+  
+  const session = getSession(sessionId);
+  
+  if (!session) {
+    return new Response(JSON.stringify({ error: 'Session not found' }), {
+      status: 404,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+  
+  const body = await request.json().catch(() => ({}));
+  
+  const chunk = addChunkToSession(session, {
+    content: body.content,
+    contentType: body.contentType,
+    producer: `com.observablecafe.connected-agent.${agent.id}`,
+    annotations: body.annotations,
+    emit: true
+  });
+  
+  return new Response(JSON.stringify({
+    success: true,
+    chunk
+  }), {
+    headers: { 'Content-Type': 'application/json' }
+  });
 }
 
 console.log(`Server running at http://localhost:${PORT}?token=${webToken}`);

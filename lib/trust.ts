@@ -88,6 +88,38 @@ export class TrustDatabase {
         PRIMARY KEY (chat_id, session_id)
       )
     `);
+
+    // Create connected_agents table
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS connected_agents (
+        id TEXT PRIMARY KEY,
+        api_key_hash TEXT UNIQUE NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT,
+        created_at INTEGER NOT NULL
+      )
+    `);
+
+    // Create index on api_key_hash for lookups
+    this.db.run(`
+      CREATE INDEX IF NOT EXISTS idx_connected_agent_api_key_hash ON connected_agents(api_key_hash)
+    `);
+
+    // Create connected_agent_sessions table (tracks subscriptions/joins)
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS connected_agent_sessions (
+        agent_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        mode TEXT NOT NULL CHECK (mode IN ('subscribed', 'joined')),
+        PRIMARY KEY (agent_id, session_id),
+        FOREIGN KEY (agent_id) REFERENCES connected_agents(id) ON DELETE CASCADE
+      )
+    `);
+
+    // Create index for finding agents in a session
+    this.db.run(`
+      CREATE INDEX IF NOT EXISTS idx_connected_agent_sessions_session ON connected_agent_sessions(session_id)
+    `);
   }
 
   /**
@@ -471,6 +503,151 @@ export class TrustDatabase {
     const results = stmt.all() as any[];
     stmt.finalize();
     return results;
+  }
+
+  // =============================================================================
+  // Connected Agents Methods
+  // =============================================================================
+
+  /**
+   * Add a connected agent
+   */
+  addConnectedAgent(id: string, apiKey: string, name: string, description?: string): void {
+    const apiKeyHash = TrustDatabase.hashToken(apiKey);
+    const now = Date.now();
+
+    const stmt = this.db.prepare(`
+      INSERT INTO connected_agents (id, api_key_hash, name, description, created_at)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+    stmt.run(id, apiKeyHash, name, description || null, now);
+    stmt.finalize();
+  }
+
+  /**
+   * Remove a connected agent
+   */
+  removeConnectedAgent(id: string): boolean {
+    // First delete sessions
+    const deleteSessionsStmt = this.db.prepare(`
+      DELETE FROM connected_agent_sessions WHERE agent_id = ?
+    `);
+    deleteSessionsStmt.run(id);
+    deleteSessionsStmt.finalize();
+
+    // Then delete agent
+    const stmt = this.db.prepare(`
+      DELETE FROM connected_agents WHERE id = ?
+    `);
+    const result = stmt.run(id);
+    stmt.finalize();
+
+    return result.changes > 0;
+  }
+
+  /**
+   * Get connected agent by ID
+   */
+  getConnectedAgent(id: string): { id: string; name: string; description?: string; createdAt: number } | undefined {
+    const stmt = this.db.prepare(`
+      SELECT id, name, description, created_at as createdAt
+      FROM connected_agents WHERE id = ?
+    `);
+    const result = stmt.get(id) as { id: string; name: string; description?: string; createdAt: number } | undefined;
+    stmt.finalize();
+    return result;
+  }
+
+  /**
+   * Get connected agent by API key
+   */
+  getConnectedAgentByApiKey(apiKey: string): { id: string; name: string; description?: string; createdAt: number } | undefined {
+    const apiKeyHash = TrustDatabase.hashToken(apiKey);
+    const stmt = this.db.prepare(`
+      SELECT id, name, description, created_at as createdAt
+      FROM connected_agents WHERE api_key_hash = ?
+    `);
+    const result = stmt.get(apiKeyHash) as { id: string; name: string; description?: string; createdAt: number } | undefined;
+    stmt.finalize();
+    return result;
+  }
+
+  /**
+   * Add/update agent session (subscribe or join)
+   */
+  setAgentSession(agentId: string, sessionId: string, mode: 'subscribed' | 'joined'): void {
+    const stmt = this.db.prepare(`
+      INSERT OR REPLACE INTO connected_agent_sessions (agent_id, session_id, mode)
+      VALUES (?, ?, ?)
+    `);
+    stmt.run(agentId, sessionId, mode);
+    stmt.finalize();
+  }
+
+  /**
+   * Remove agent session
+   */
+  removeAgentSession(agentId: string, sessionId: string): boolean {
+    const stmt = this.db.prepare(`
+      DELETE FROM connected_agent_sessions WHERE agent_id = ? AND session_id = ?
+    `);
+    const result = stmt.run(agentId, sessionId);
+    stmt.finalize();
+    return result.changes > 0;
+  }
+
+  /**
+   * Get all sessions for an agent
+   */
+  getAgentSessions(agentId: string): { sessionId: string; mode: 'subscribed' | 'joined' }[] {
+    const stmt = this.db.prepare(`
+      SELECT session_id as sessionId, mode
+      FROM connected_agent_sessions WHERE agent_id = ?
+    `);
+    const results = stmt.all(agentId) as { sessionId: string; mode: 'subscribed' | 'joined' }[];
+    stmt.finalize();
+    return results;
+  }
+
+  /**
+   * Get all agents in a session
+   */
+  getSessionAgents(sessionId: string): { agentId: string; name: string; mode: 'subscribed' | 'joined' }[] {
+    const stmt = this.db.prepare(`
+      SELECT cas.agent_id as agentId, ca.name, cas.mode
+      FROM connected_agent_sessions cas
+      JOIN connected_agents ca ON ca.id = cas.agent_id
+      WHERE cas.session_id = ?
+    `);
+    const results = stmt.all(sessionId) as { agentId: string; name: string; mode: 'subscribed' | 'joined' }[];
+    stmt.finalize();
+    return results;
+  }
+
+  /**
+   * Check if agent can read chunks in a session
+   */
+  canAgentReadChunks(agentId: string, sessionId: string): boolean {
+    const stmt = this.db.prepare(`
+      SELECT 1 FROM connected_agent_sessions 
+      WHERE agent_id = ? AND session_id = ?
+    `);
+    const result = stmt.get(agentId, sessionId);
+    stmt.finalize();
+    return !!result;
+  }
+
+  /**
+   * Check if agent can produce chunks in a session
+   */
+  canAgentProduceChunks(agentId: string, sessionId: string): boolean {
+    const stmt = this.db.prepare(`
+      SELECT 1 FROM connected_agent_sessions 
+      WHERE agent_id = ? AND session_id = ? AND mode = 'joined'
+    `);
+    const result = stmt.get(agentId, sessionId);
+    stmt.finalize();
+    return !!result;
   }
 
   close(): void {
