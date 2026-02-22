@@ -8,6 +8,14 @@ const STATIC_ASSETS = [
   '/icon-512.png'
 ];
 
+function fetchWithTimeout(request, timeout = 5000) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeout);
+
+  return fetch(request, { signal: controller.signal })
+    .finally(() => clearTimeout(id));
+}
+
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
@@ -36,7 +44,7 @@ self.addEventListener('fetch', (event) => {
   // API calls always go to network
   if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/chat/')) {
     event.respondWith(
-      fetch(event.request).catch(() => {
+      fetchWithTimeout(event.request).catch(() => {
         return new Response(JSON.stringify({ error: 'Network error' }), {
           status: 503,
           headers: { 'Content-Type': 'application/json' }
@@ -55,8 +63,8 @@ self.addEventListener('fetch', (event) => {
       return fetch(event.request).then((response) => {
         if (response.status === 200) {
           const responseClone = response.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseClone);
+          return caches.open(CACHE_NAME).then((cache) => {
+            return cache.put(event.request, responseClone).then(() => response);
           });
         }
         return response;
