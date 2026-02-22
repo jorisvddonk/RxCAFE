@@ -122,3 +122,43 @@ export function extractRuntimeConfigFromChunk(configChunk: Chunk): RuntimeSessio
     systemPrompt: configChunk.annotations['config.systemPrompt'],
   };
 }
+
+export interface ConfigValidationError {
+  path: string;
+  message: string;
+}
+
+let ajvInstance: any = null;
+
+async function getAjv() {
+  if (!ajvInstance) {
+    const Ajv = (await import('ajv')).default;
+    ajvInstance = new Ajv({ allErrors: true });
+  }
+  return ajvInstance;
+}
+
+export async function validateConfigAgainstSchema(
+  config: RuntimeSessionConfig,
+  schema: Record<string, any>
+): Promise<ConfigValidationError[]> {
+  const ajv = await getAjv();
+  const validate = ajv.compile(schema);
+  const valid = validate(config);
+  
+  if (valid) {
+    return [];
+  }
+  
+  const errors: ConfigValidationError[] = [];
+  if (validate.errors) {
+    for (const err of validate.errors) {
+      errors.push({
+        path: err.instancePath || err.schemaPath || '',
+        message: err.message || 'Validation failed'
+      });
+    }
+  }
+  
+  return errors;
+}

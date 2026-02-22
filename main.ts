@@ -56,6 +56,7 @@ import { TelegramBot, TelegramUser, TelegramConfig } from './lib/telegram.js';
 import { Database, extractClientToken, maskToken } from './lib/database.js';
 import { SessionStore } from './lib/session-store.js';
 import type { LLMParams, RuntimeSessionConfig } from './lib/agent.js';
+import { validateConfigAgainstSchema } from './lib/agent.js';
 import { Subscription } from './lib/stream.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -1108,6 +1109,19 @@ function ensureTelegramSubscription(chatId: number, session: Session) {
 
 async function handleCreateSession(body?: any): Promise<Response> {
   try {
+    const agentId = body?.agentId || 'default';
+    const agent = getAgent(agentId);
+    
+    if (!agent) {
+      return new Response(JSON.stringify({ 
+        error: 'Agent not found',
+        message: `No agent named '${agentId}'`
+      }), {
+        status: 404,
+        headers: { 'Content-Type': 'application/json' }
+      });
+    }
+    
     // Build runtime config from request
     const runtimeConfig: RuntimeSessionConfig = {};
     
@@ -1116,8 +1130,23 @@ async function handleCreateSession(body?: any): Promise<Response> {
     if (body?.systemPrompt) runtimeConfig.systemPrompt = body.systemPrompt;
     if (body?.llmParams) runtimeConfig.llmParams = body.llmParams;
     
+    // Validate config against agent's schema
+    if (agent.configSchema) {
+      const errors = await validateConfigAgainstSchema(runtimeConfig, agent.configSchema);
+      if (errors.length > 0) {
+        return new Response(JSON.stringify({ 
+          error: 'Invalid configuration',
+          message: 'Session configuration does not meet agent requirements',
+          validationErrors: errors
+        }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+    }
+    
     const options: CreateSessionOptions = {
-      agentId: body?.agentId,
+      agentId,
       runtimeConfig,
     };
     
@@ -1367,6 +1396,44 @@ async function handleAddChunk(sessionId: string, options: AddChunkOptions): Prom
   
   // Runtime config chunks should be emitted to inputStream so they're processed
   const isRuntimeConfig = options.contentType === 'null' && options.annotations?.['config.type'] === 'runtime';
+  
+  // Validate runtime config against agent schema
+  if (isRuntimeConfig && options.annotations) {
+    const agent = getAgent(session.agentName);
+    if (agent?.configSchema) {
+      const runtimeConfig: RuntimeSessionConfig = {
+        backend: options.annotations['config.backend'],
+        model: options.annotations['config.model'],
+        systemPrompt: options.annotations['config.systemPrompt'],
+      };
+      
+      // Extract llmParams from annotations
+      const llmParams: any = {};
+      const llmKeys = ['temperature', 'maxTokens', 'topP', 'topK', 'repeatPenalty', 'stop', 'seed', 'maxContextLength', 'numCtx'];
+      for (const key of llmKeys) {
+        const val = options.annotations[`config.llm.${key}`];
+        if (val !== undefined) {
+          llmParams[key] = val;
+        }
+      }
+      if (Object.keys(llmParams).length > 0) {
+        runtimeConfig.llmParams = llmParams;
+      }
+      
+      const errors = await validateConfigAgainstSchema(runtimeConfig, agent.configSchema);
+      if (errors.length > 0) {
+        return new Response(JSON.stringify({ 
+          error: 'Invalid configuration',
+          message: 'Runtime config does not meet agent requirements',
+          validationErrors: errors
+        }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
+    }
+  }
+  
   const chunk = addChunkToSession(session, { ...options, emit: isRuntimeConfig });
   
   return new Response(JSON.stringify({
