@@ -1053,19 +1053,26 @@ class RXCafeChat {
         try {
             const parsed = JSON.parse(args);
             
-            if (!parsed.content) {
-                this.showError('Chunk must have content field');
+            if (parsed.content === undefined && parsed.contentType !== 'null') {
+                this.showError('Chunk must have content field or contentType: "null"');
                 return;
+            }
+            
+            const body = {
+                producer: parsed.producer || 'com.rxcafe.user',
+                annotations: parsed.annotations || {}
+            };
+            
+            if (parsed.contentType === 'null') {
+                body.contentType = 'null';
+            } else {
+                body.content = parsed.content;
             }
             
             const response = await fetch(this.apiUrl(`/api/session/${this.sessionId}/chunk`), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    content: parsed.content,
-                    producer: parsed.producer || 'com.rxcafe.user',
-                    annotations: parsed.annotations || {}
-                })
+                body: JSON.stringify(body)
             });
             
             const data = await response.json();
