@@ -425,6 +425,72 @@ body {
 .message.assistant { align-self: flex-start; background-color: var(--assistant-bubble); color: var(--assistant-text); border-bottom-left-radius: 0.25rem; }
 .message.streaming { border-left: 3px solid var(--primary-color); }
 
+/* Web Chunk Styles */
+.message.web {
+    border-left: 4px solid var(--web-border-default);
+    background-color: var(--web-bg-default);
+    max-width: 80%;
+    align-self: flex-start;
+}
+
+.message.web.trusted {
+    border-left-color: var(--web-border-trusted);
+    background-color: var(--web-bg-trusted);
+}
+
+.message.web.untrusted {
+    border-left-color: var(--web-border-untrusted);
+    background-color: var(--web-bg-untrusted);
+}
+
+.web-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.5rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid var(--border-color);
+    flex-wrap: wrap;
+}
+
+.web-source {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    font-weight: 500;
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.trust-badge {
+    font-size: 0.625rem;
+    padding: 0.25rem 0.5rem;
+    border-radius: 0.25rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.trust-badge.trusted { background-color: #10b981; color: white; }
+.trust-badge.untrusted { background-color: #ef4444; color: white; }
+
+.trust-toggle {
+    font-size: 0.75rem;
+    padding: 0.25rem 0.5rem;
+    border: 1px solid var(--border-color);
+    background-color: var(--surface-color);
+    color: var(--text-color);
+    border-radius: 0.25rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.trust-toggle:hover {
+    background-color: var(--bg-color);
+    border-color: var(--primary-color);
+}
+
 .message.image-message, .message.audio-message {
     padding: 0.5rem;
 }

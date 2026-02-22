@@ -973,11 +973,11 @@ class RXCafeChat {
             
             const data = await response.json();
             
-            // Remove loading indicator
             loadingEl.remove();
             
             if (data.success && data.chunk) {
-                this.addWebChunk(data.chunk);
+                // SSE will render the chunk; we just show success
+                this.addSystemMessage(`Fetched: ${data.chunk.annotations?.['web.source-url'] || url}`);
             } else {
                 this.showError(data.error || 'Failed to fetch web content');
             }
