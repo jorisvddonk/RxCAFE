@@ -1,88 +1,92 @@
 /**
  * Anki Agent
- * Study flashcards with spaced repetition.
+ * Study flashcards with spaced repetition using SQLite persistence.
  * 
  * Commands:
- * - /import <csv> - Import cards (format: front,back or front;back)
- * - /study - Start a study session
- * - /again - Rate current card as "Again"
- * - /hard - Rate current card as "Hard"  
- * - /good - Rate current card as "Good"
- * /easy - Rate current card as "Easy"
- * - /show - Show the answer again
- * - /stats - Show study statistics
+ * - !help - Show available commands
+ * - !sets - List all card sets
+ * - !set create <name> [description] - Create a new card set
+ * - !set delete <name> - Delete a card set
+ * - !set info <name> - Show set details
+ * - !import <setName> <front,back or front;back> - Add cards to a set
+ * - !study [setName] - Start studying (optionally filter by set)
+ * - !show - Show the answer
+ * - !again - Rate card as "Again"
+ * - !hard - Rate card as "Hard"
+ * - !good - Rate card as "Good"
+ * - !easy - Rate card as "Easy"
+ * - !stats [setName] - Show study statistics
+ * - !cards <setName> - List cards in a set
+ * - !card delete <cardId> - Delete a specific card
  */
 
 import type { AgentDefinition, AgentSessionContext } from '../lib/agent.js';
 import type { Chunk } from '../lib/chunk.js';
-import { createTextChunk, createNullChunk, annotateChunk } from '../lib/chunk.js';
-import { filter, map, mergeMap, catchError, take, EMPTY } from '../lib/stream.js';
+import { createTextChunk, createNullChunk } from '../lib/chunk.js';
+import { filter, map, mergeMap, catchError, EMPTY } from '../lib/stream.js';
+import { AnkiStore, type AnkiCard, type AnkiSet } from '../lib/anki-store.js';
+import { Database } from 'bun:sqlite';
 
-interface AnkiCard {
-  front: string;
-  back: string;
-  ease: number;
-  interval: number;
-  due: number;
-  reviews: number;
+const ANKI_DB_PATH = process.env.ANKI_DB_PATH || './rxcafe-anki.db';
+
+function createMarkdownChunk(content: string, source: string, annotations: Record<string, any> = {}): Chunk {
+  return createTextChunk(content, source, { ...annotations, 'parsers.markdown.enabled': true });
 }
 
-interface AnkiState {
-  cards: AnkiCard[];
-  currentCardIndex: number;
+const HELP_MESSAGE = `📚 **Anki Flashcard Agent**
+
+**Card Sets:**
+- \`!sets\` - List all card sets
+- \`!set create <name> [description]\` - Create a new set
+- \`!set delete <name>\` - Delete a set
+- \`!set info <name>\` - Show set details
+
+**Cards:**
+- \`!import <setName> <front,back>\` - Add cards (use ; or , as separator)
+- \`!cards <setName>\` - List cards in a set
+- \`!card delete <cardId>\` - Delete a card
+
+**Study:**
+- \`!study [setName]\` - Start studying (all due cards or specific set)
+- \`!show\` - Reveal the answer
+- \`!again\` / \`!hard\` / \`!good\` / \`!easy\` - Rate card
+- \`!stats [setName]\` - View statistics`;
+
+let ankiStore: AnkiStore | null = null;
+
+function getAnkiStore(): AnkiStore {
+  if (!ankiStore) {
+    const db = new Database(ANKI_DB_PATH);
+    ankiStore = new AnkiStore(db);
+  }
+  return ankiStore;
+}
+
+interface StudySession {
+  currentCard: AnkiCard | null;
   showingFront: boolean;
-  sessionStart: number;
   reviewed: number;
   again: number;
   hard: number;
   good: number;
   easy: number;
+  filterSetId: number | null;
 }
 
-const ANKI_STATE_KEY = 'anki-state';
-
-function createInitialState(): AnkiState {
+function createStudySession(): StudySession {
   return {
-    cards: [],
-    currentCardIndex: -1,
+    currentCard: null,
     showingFront: true,
-    sessionStart: 0,
     reviewed: 0,
     again: 0,
     hard: 0,
     good: 0,
-    easy: 0
+    easy: 0,
+    filterSetId: null
   };
 }
 
-function parseCSV(csv: string): AnkiCard[] {
-  const cards: AnkiCard[] = [];
-  const now = Date.now();
-  const lines = csv.split('\n').filter(l => l.trim());
-  
-  for (const line of lines) {
-    const parts = line.includes(';') ? line.split(';') : line.split(',');
-    if (parts.length >= 2) {
-      cards.push({
-        front: parts[0].trim(),
-        back: parts[1].trim(),
-        ease: 2.5,
-        interval: 0,
-        due: now,
-        reviews: 0
-      });
-    }
-  }
-  
-  return cards;
-}
-
-function getDueCards(state: AnkiState): AnkiCard[] {
-  const now = Date.now();
-  return state.cards.filter(c => c.due <= now);
-}
-
-function scheduleCard(card: AnkiCard, rating: 'again' | 'hard' | 'good' | 'easy'): AnkiCard {
+function scheduleCard(card: AnkiCard, rating: 'again' | 'hard' | 'good' | 'easy'): { ease: number; interval: number; due: number } {
   const now = Date.now();
   const DAY_MS = 24 * 60 * 60 * 1000;
   
@@ -118,88 +122,10 @@ function scheduleCard(card: AnkiCard, rating: 'again' | 'hard' | 'good' | 'easy'
   }
   
   return {
-    ...card,
     ease: newEase,
     interval: newInterval,
-    due: now + newInterval * DAY_MS,
-    reviews: card.reviews + 1
+    due: now + newInterval * DAY_MS
   };
-}
-
-function formatStats(state: AnkiState): string {
-  const dueCount = getDueCards(state).length;
-  const totalCards = state.cards.length;
-  
-  return `📊 Statistics
-
-Total cards: ${totalCards}
-Due now: ${dueCount}
-
-Session:
-- Reviewed: ${state.reviewed}
-- Again: ${state.again}
-- Hard: ${state.hard}
-- Good: ${state.good}
-- Easy: ${state.easy}`;
-}
-
-function showCard(state: AnkiState): Chunk | null {
-  const dueCards = getDueCards(state);
-  if (dueCards.length === 0) {
-    return createTextChunk('🎉 No cards due! Great job!', 'anki-agent', { 'chat.role': 'assistant' });
-  }
-  
-  const card = dueCards[0];
-  state.currentCardIndex = state.cards.indexOf(card);
-  state.showingFront = true;
-  
-  return createTextChunk(
-    `📚 Card ${state.reviewed + 1} of session\n\n${card.front}\n\nType /show to reveal answer, /again /hard /good /easy to rate`,
-    'anki-agent',
-    { 'chat.role': 'assistant', 'anki.card-front': card.front, 'anki.card-back': card.back }
-  );
-}
-
-function showAnswer(state: AnkiState): Chunk | null {
-  const card = state.cards[state.currentCardIndex];
-  if (!card) return createTextChunk('No card selected. Use /study first.', 'anki-agent', { 'chat.role': 'assistant' });
-  
-  state.showingFront = false;
-  
-  return createTextChunk(
-    `${card.front}\n\n---\n\n${card.back}\n\nRate: /again /hard /good /easy`,
-    'anki-agent',
-    { 'chat.role': 'assistant', 'anki.card-front': card.front, 'anki.card-back': card.back }
-  );
-}
-
-function rateCard(state: AnkiState, rating: 'again' | 'hard' | 'good' | 'easy'): Chunk {
-  const card = state.cards[state.currentCardIndex];
-  if (!card) {
-    return createTextChunk('No card to rate. Use /study first.', 'anki-agent', { 'chat.role': 'assistant' });
-  }
-  
-  const updatedCard = scheduleCard(card, rating);
-  state.cards[state.currentCardIndex] = updatedCard;
-  state.reviewed++;
-  
-  switch (rating) {
-    case 'again': state.again++; break;
-    case 'hard': state.hard++; break;
-    case 'good': state.good++; break;
-    case 'easy': state.easy++; break;
-  }
-  
-  const dueCount = getDueCards(state).length;
-  const nextInterval = updatedCard.interval;
-  const intervalText = nextInterval === 0 ? 'now' : 
-    nextInterval === 1 ? '1 day' : `${nextInterval} days`;
-  
-  return createTextChunk(
-    `Rated: ${rating.toUpperCase()}\nNext review: ${intervalText}\n\n${dueCount > 0 ? `Cards remaining: ${dueCount}` : '🎉 All done!'}`,
-    'anki-agent',
-    { 'chat.role': 'assistant' }
-  );
 }
 
 export const ankiAgent: AgentDefinition = {
@@ -212,167 +138,300 @@ export const ankiAgent: AgentDefinition = {
   },
   
   async initialize(session: AgentSessionContext) {
-    let state = createInitialState();
+    const store = getAnkiStore();
+    let studySession = createStudySession();
     
-    try {
-      await session.loadState();
-      const savedState = session.history.find(c => c.annotations['anki.saved-state']);
-      if (savedState) {
-        state = savedState.annotations['anki.saved-state'];
-      }
-    } catch {}
+    session.outputStream.next(createMarkdownChunk(HELP_MESSAGE, 'anki-agent', { 'chat.role': 'assistant' }));
     
     session.inputStream.pipe(
       filter((chunk: Chunk) => chunk.contentType === 'text'),
       map((chunk: Chunk) => {
         if (chunk.annotations['chat.role']) return chunk;
-        return annotateChunk(chunk, 'chat.role', 'user');
+        return { ...chunk, annotations: { ...chunk.annotations, 'chat.role': 'user' } };
       }),
       filter((chunk: Chunk) => {
         const trustLevel = chunk.annotations['security.trust-level'];
         return !trustLevel || trustLevel.trusted !== false;
       }),
       mergeMap(async (chunk: Chunk) => {
-        const text = chunk.content as string;
+        const text = (chunk.content as string).trim();
         
-        if (text.startsWith('/import ')) {
-          const csv = text.slice(8).trim();
-          const newCards = parseCSV(csv);
-          state.cards = [...state.cards, ...newCards];
+        if (text === '!help') {
+          return createMarkdownChunk(HELP_MESSAGE, 'anki-agent', { 'chat.role': 'assistant' });
+        }
+        
+        if (text === '!sets') {
+          const sets = await store.listSets();
+          if (sets.length === 0) {
+            return createMarkdownChunk('No card sets yet. Use `!set create <name>` to create one.', 'anki-agent', { 'chat.role': 'assistant' });
+          }
+          const lines = sets.map(s => `📁 **${s.name}** (${s.cardCount} cards, ${s.dueCount} due)${s.description ? ` - ${s.description}` : ''}`);
+          return createMarkdownChunk(`**Card Sets:**\n\n${lines.join('\n')}`, 'anki-agent', { 'chat.role': 'assistant' });
+        }
+        
+        if (text.startsWith('!set create ')) {
+          const args = text.slice(12).trim();
+          const spaceIdx = args.indexOf(' ');
+          const name = spaceIdx > 0 ? args.slice(0, spaceIdx) : args;
+          const description = spaceIdx > 0 ? args.slice(spaceIdx + 1) : undefined;
           
-          await session.persistState();
+          try {
+            const id = await store.createSet(name, description);
+            return createMarkdownChunk(`✅ Created set "**${name}**" (ID: ${id})`, 'anki-agent', { 'chat.role': 'assistant' });
+          } catch (err: any) {
+            return createMarkdownChunk(`❌ Error: ${err.message}`, 'anki-agent', { 'chat.role': 'assistant' });
+          }
+        }
+        
+        if (text.startsWith('!set delete ')) {
+          const name = text.slice(12).trim();
+          const set = await store.getSetByName(name);
+          if (!set) {
+            return createMarkdownChunk(`❌ Set "${name}" not found.`, 'anki-agent', { 'chat.role': 'assistant' });
+          }
+          await store.deleteSet(set.id);
+          return createMarkdownChunk(`✅ Deleted set "**${name}**" and all its cards.`, 'anki-agent', { 'chat.role': 'assistant' });
+        }
+        
+        if (text.startsWith('!set info ')) {
+          const name = text.slice(10).trim();
+          const set = await store.getSetByName(name);
+          if (!set) {
+            return createMarkdownChunk(`❌ Set "${name}" not found.`, 'anki-agent', { 'chat.role': 'assistant' });
+          }
+          const cards = await store.getCardsBySet(set.id);
+          const lines = [
+            `📁 **${set.name}**`,
+            set.description || '_No description_',
+            ``,
+            `Cards: ${set.cardCount}`,
+            `Due: ${set.dueCount}`,
+            ``,
+            `Cards:`,
+            ...cards.slice(0, 10).map(c => `  - [${c.id}] ${c.front.substring(0, 50)}${c.front.length > 50 ? '...' : ''}`),
+            cards.length > 10 ? `  ... and ${cards.length - 10} more` : ''
+          ];
+          return createMarkdownChunk(lines.join('\n'), 'anki-agent', { 'chat.role': 'assistant' });
+        }
+        
+        if (text.startsWith('!import ')) {
+          const rest = text.slice(8).trim();
+          const spaceIdx = rest.indexOf(' ');
+          if (spaceIdx < 0) {
+            return createMarkdownChunk('Usage: `!import <setName> <front,back>`', 'anki-agent', { 'chat.role': 'assistant' });
+          }
+          const setName = rest.slice(0, spaceIdx);
+          const csv = rest.slice(spaceIdx + 1);
           
-          if (session.callbacks?.onFinish) {
-            session.callbacks.onFinish();
+          const set = await store.getSetByName(setName);
+          if (!set) {
+            return createMarkdownChunk(`❌ Set "${setName}" not found. Use \`!set create ${setName}\` first.`, 'anki-agent', { 'chat.role': 'assistant' });
           }
           
-          return createTextChunk(
-            `✅ Imported ${newCards.length} cards. Total: ${state.cards.length}\n\nUse /study to start reviewing.`,
+          const cards: Array<{ front: string; back: string }> = [];
+          const lines = csv.split('\n').filter(l => l.trim());
+          
+          for (const line of lines) {
+            const parts = line.includes(';') ? line.split(';') : line.split(',');
+            if (parts.length >= 2) {
+              cards.push({
+                front: parts[0].trim(),
+                back: parts[1].trim()
+              });
+            }
+          }
+          
+          if (cards.length === 0) {
+            return createMarkdownChunk('❌ No valid cards found. Format: `front,back` or `front;back`', 'anki-agent', { 'chat.role': 'assistant' });
+          }
+          
+          const count = await store.addCards(set.id, cards);
+          return createMarkdownChunk(`✅ Imported ${count} cards into "**${setName}**". Total: ${set.cardCount + count}`, 'anki-agent', { 'chat.role': 'assistant' });
+        }
+        
+        if (text.startsWith('!cards ')) {
+          const setName = text.slice(7).trim();
+          const set = await store.getSetByName(setName);
+          if (!set) {
+            return createMarkdownChunk(`❌ Set "${setName}" not found.`, 'anki-agent', { 'chat.role': 'assistant' });
+          }
+          const cards = await store.getCardsBySet(set.id);
+          if (cards.length === 0) {
+            return createMarkdownChunk(`No cards in set "**${setName}**".`, 'anki-agent', { 'chat.role': 'assistant' });
+          }
+          const lines = cards.map(c => {
+            const dueText = c.due <= Date.now() ? ' (due)' : '';
+            return `[${c.id}] ${c.front.substring(0, 40)}${c.front.length > 40 ? '...' : ''}${dueText}`;
+          });
+          return createMarkdownChunk(`**Cards in ${setName}:**\n${lines.join('\n')}`, 'anki-agent', { 'chat.role': 'assistant' });
+        }
+        
+        if (text.startsWith('!card delete ')) {
+          const cardId = parseInt(text.slice(13).trim(), 10);
+          if (isNaN(cardId)) {
+            return createMarkdownChunk('Usage: `!card delete <cardId>`', 'anki-agent', { 'chat.role': 'assistant' });
+          }
+          const deleted = await store.deleteCard(cardId);
+          if (deleted) {
+            return createMarkdownChunk(`✅ Deleted card ${cardId}.`, 'anki-agent', { 'chat.role': 'assistant' });
+          }
+          return createMarkdownChunk(`❌ Card ${cardId} not found.`, 'anki-agent', { 'chat.role': 'assistant' });
+        }
+        
+        if (text.startsWith('!stats')) {
+          const setName = text.length > 6 ? text.slice(7).trim() : null;
+          let setId: number | undefined;
+          
+          if (setName) {
+            const set = await store.getSetByName(setName);
+            if (!set) {
+              return createMarkdownChunk(`❌ Set "${setName}" not found.`, 'anki-agent', { 'chat.role': 'assistant' });
+            }
+            setId = set.id;
+          }
+          
+          const totalCards = await store.getCardCount(setId);
+          const dueCards = await store.getDueCount(setId);
+          
+          return createMarkdownChunk(`📊 **Statistics**${setName ? ` (${setName})` : ''}
+
+Total cards: ${totalCards}
+Due now: ${dueCards}
+
+Current session:
+- Reviewed: ${studySession.reviewed}
+- Again: ${studySession.again}
+- Hard: ${studySession.hard}
+- Good: ${studySession.good}
+- Easy: ${studySession.easy}`, 'anki-agent', { 'chat.role': 'assistant' });
+        }
+        
+        if (text.startsWith('!study')) {
+          const setName = text.length > 6 ? text.slice(7).trim() : null;
+          let setId: number | undefined;
+          
+          if (setName) {
+            const set = await store.getSetByName(setName);
+            if (!set) {
+              return createMarkdownChunk(`❌ Set "${setName}" not found.`, 'anki-agent', { 'chat.role': 'assistant' });
+            }
+            setId = set.id;
+            studySession.filterSetId = set.id;
+          } else {
+            studySession.filterSetId = null;
+          }
+          
+          studySession = createStudySession();
+          studySession.filterSetId = setId || null;
+          
+          const dueCards = await store.getDueCards(setId, 1);
+          if (dueCards.length === 0) {
+            return createMarkdownChunk(`🎉 No cards due${setName ? ` in "${setName}"` : ''}! Great job!`, 'anki-agent', { 'chat.role': 'assistant' });
+          }
+          
+          studySession.currentCard = dueCards[0];
+          studySession.showingFront = true;
+          
+          return createMarkdownChunk(
+            `📚 Card 1\n\n${studySession.currentCard.front}\n\nType \`!show\` to reveal answer, or rate: \`!again\` \`!hard\` \`!good\` \`!easy\``,
+            'anki-agent',
+            { 'chat.role': 'assistant', 'anki.card-id': studySession.currentCard.id }
+          );
+        }
+        
+        if (text === '!show') {
+          if (!studySession.currentCard) {
+            return createMarkdownChunk('No card selected. Use `!study` first.', 'anki-agent', { 'chat.role': 'assistant' });
+          }
+          
+          studySession.showingFront = false;
+          
+          return createMarkdownChunk(
+            `${studySession.currentCard.front}\n\n---\n\n${studySession.currentCard.back}\n\nRate: \`!again\` \`!hard\` \`!good\` \`!easy\``,
+            'anki-agent',
+            { 'chat.role': 'assistant', 'anki.card-id': studySession.currentCard.id }
+          );
+        }
+        
+        const ratings: Array<'again' | 'hard' | 'good' | 'easy'> = ['again', 'hard', 'good', 'easy'];
+        for (const rating of ratings) {
+          if (text === `!${rating}`) {
+            if (!studySession.currentCard) {
+              return createMarkdownChunk('No card to rate. Use `!study` first.', 'anki-agent', { 'chat.role': 'assistant' });
+            }
+            
+            const updates = scheduleCard(studySession.currentCard, rating);
+            await store.updateCard(studySession.currentCard.id, {
+              ease: updates.ease,
+              interval: updates.interval,
+              due: updates.due,
+              reviews: studySession.currentCard.reviews + 1
+            });
+            
+            studySession.reviewed++;
+            switch (rating) {
+              case 'again': studySession.again++; break;
+              case 'hard': studySession.hard++; break;
+              case 'good': studySession.good++; break;
+              case 'easy': studySession.easy++; break;
+            }
+            
+            const intervalText = updates.interval === 1 ? '1 day' : `${updates.interval} days`;
+            const nextCards = await store.getDueCards(studySession.filterSetId || undefined, 1);
+            
+            if (nextCards.length === 0) {
+              const response = createMarkdownChunk(
+                `Rated: ${rating.toUpperCase()}\nNext review: ${intervalText}\n\n🎉 All done for now!`,
+                'anki-agent',
+                { 'chat.role': 'assistant' }
+              );
+              studySession.currentCard = null;
+              return response;
+            }
+            
+            studySession.currentCard = nextCards[0];
+            studySession.showingFront = true;
+            
+            session.outputStream.next(createMarkdownChunk(
+              `Rated: ${rating.toUpperCase()}\nNext review: ${intervalText}`,
+              'anki-agent',
+              { 'chat.role': 'assistant' }
+            ));
+            
+            return createMarkdownChunk(
+              `📚 Card ${studySession.reviewed + 1}\n\n${studySession.currentCard.front}\n\nType \`!show\` to reveal answer, or rate: \`!again\` \`!hard\` \`!good\` \`!easy\``,
+              'anki-agent',
+              { 'chat.role': 'assistant', 'anki.card-id': studySession.currentCard.id }
+            );
+          }
+        }
+        
+        if (text.startsWith('!')) {
+          return createMarkdownChunk(
+            `Unknown command. Type \`!help\` for available commands.`,
             'anki-agent',
             { 'chat.role': 'assistant' }
           );
         }
         
-        if (text === '/stats') {
-          if (session.callbacks?.onFinish) {
-            session.callbacks.onFinish();
-          }
-          return createTextChunk(formatStats(state), 'anki-agent', { 'chat.role': 'assistant' });
-        }
-        
-        if (text === '/study') {
-          state.sessionStart = Date.now();
-          if (session.callbacks?.onFinish) {
-            session.callbacks.onFinish();
-          }
-          return showCard(state) || createTextChunk('No cards to study.', 'anki-agent', { 'chat.role': 'assistant' });
-        }
-        
-        if (text === '/show') {
-          if (session.callbacks?.onFinish) {
-            session.callbacks.onFinish();
-          }
-          return showAnswer(state) || createTextChunk('No card to show.', 'anki-agent', { 'chat.role': 'assistant' });
-        }
-        
-        if (text === '/again') {
-          const response = rateCard(state, 'again');
-          await session.persistState();
-          const nextCard = showCard(state);
-          if (nextCard) {
-            session.outputStream.next(response);
-            if (session.callbacks?.onFinish) {
-              session.callbacks.onFinish();
-            }
-            return nextCard;
-          }
-          if (session.callbacks?.onFinish) {
-            session.callbacks.onFinish();
-          }
-          return response;
-        }
-        
-        if (text === '/hard') {
-          const response = rateCard(state, 'hard');
-          await session.persistState();
-          const nextCard = showCard(state);
-          if (nextCard) {
-            session.outputStream.next(response);
-            if (session.callbacks?.onFinish) {
-              session.callbacks.onFinish();
-            }
-            return nextCard;
-          }
-          if (session.callbacks?.onFinish) {
-            session.callbacks.onFinish();
-          }
-          return response;
-        }
-        
-        if (text === '/good') {
-          const response = rateCard(state, 'good');
-          await session.persistState();
-          const nextCard = showCard(state);
-          if (nextCard) {
-            session.outputStream.next(response);
-            if (session.callbacks?.onFinish) {
-              session.callbacks.onFinish();
-            }
-            return nextCard;
-          }
-          if (session.callbacks?.onFinish) {
-            session.callbacks.onFinish();
-          }
-          return response;
-        }
-        
-        if (text === '/easy') {
-          const response = rateCard(state, 'easy');
-          await session.persistState();
-          const nextCard = showCard(state);
-          if (nextCard) {
-            session.outputStream.next(response);
-            if (session.callbacks?.onFinish) {
-              session.callbacks.onFinish();
-            }
-            return nextCard;
-          }
-          if (session.callbacks?.onFinish) {
-            session.callbacks.onFinish();
-          }
-          return response;
-        }
-        
-        if (text.startsWith('/')) {
-          if (session.callbacks?.onFinish) {
-            session.callbacks.onFinish();
-          }
-          return createTextChunk(
-            `Unknown command. Available:\n- /import <csv> - Import cards\n- /study - Start studying\n- /show - Show answer\n- /again /hard /good /easy - Rate card\n- /stats - View statistics`,
-            'anki-agent',
-            { 'chat.role': 'assistant' }
-          );
-        }
-        
-        const evaluator = session.createEvaluator();
-        const chunks: Chunk[] = [];
-        
-        for await (const response of evaluator.evaluateChunk(chunk)) {
-          chunks.push(response);
-        }
-        
-        if (session.callbacks?.onFinish) {
-          session.callbacks.onFinish();
-        }
-        
-        return chunks[chunks.length - 1] || createNullChunk('anki-agent');
+        return createMarkdownChunk(
+          `Type \`!help\` for available commands.`,
+          'anki-agent',
+          { 'chat.role': 'assistant' }
+        );
       }),
       catchError((error: Error) => {
         session.errorStream.next(error);
         return EMPTY;
       })
     ).subscribe({
-      next: (chunk: Chunk) => session.outputStream.next(chunk),
+      next: (chunk: Chunk) => {
+        session.outputStream.next(chunk);
+        const callbacks = session.callbacks;
+        if (callbacks?.onFinish) {
+          callbacks.onFinish();
+        }
+      },
       error: (error: Error) => session.errorStream.next(error)
     });
     
