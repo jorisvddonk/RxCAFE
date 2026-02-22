@@ -623,6 +623,7 @@ class RXCafeChat {
                         console.log(`[RXCAFE] SSE assistant chunk claimed by element elId=${assistantEl.dataset.elId}, registering id:`, chunk.id);
                         assistantEl.dataset.chunkId = chunk.id;
                         this.chunkElements.set(chunk.id, assistantEl);
+                        assistantEl.dataset.annotations = JSON.stringify(chunk.annotations || {});
                         this.updateMessageContent(assistantEl, chunk.content, chunk.annotations);
                         delete assistantEl.dataset.pendingAssistant;
                         if (assistantEl === this._lastAssistantEl) this._lastAssistantEl = null;
@@ -1184,7 +1185,8 @@ class RXCafeChat {
             case 'token':
                 if (data.token) {
                     this.currentContent += data.token;
-                    this.updateMessageContent(this.currentMessageEl, this.currentContent);
+                    const annotations = this.currentMessageEl?.dataset.annotations ? JSON.parse(this.currentMessageEl.dataset.annotations) : {};
+                    this.updateMessageContent(this.currentMessageEl, this.currentContent, annotations);
                 }
                 break;
             case 'error':
