@@ -250,14 +250,6 @@ export function extractCardsFromApkg(apkg: ParsedApkg): Array<{
     let back = template.afmt;
     
     for (const [fieldName, value] of Object.entries(fields)) {
-      const safeValue = value.replace(/[<>&'"]/g, c => ({
-        '<': '&lt;',
-        '>': '&gt;',
-        '&': '&amp;',
-        "'": '&#39;',
-        '"': '&quot;'
-      })[c] || c);
-      
       front = front.replace(new RegExp(`\\{\\{${fieldName}\\}\\}`, 'gi'), value);
       front = front.replace(new RegExp(`\\{\\{text:${fieldName}\\}\\}`, 'gi'), value);
       front = front.replace(new RegExp(`\\{\\{#${fieldName}\\}\\}`, 'gi'), value ? '' : '');
@@ -277,8 +269,8 @@ export function extractCardsFromApkg(apkg: ParsedApkg): Array<{
     front = front.replace(/\{\{[^}]+\}\}/g, '');
     back = back.replace(/\{\{[^}]+\}\}/g, '');
     
-    front = stripHtml(front);
-    back = stripHtml(back);
+    front = cleanHtml(front);
+    back = cleanHtml(back);
     
     const deck = apkg.decks.get(card.did);
     const deckName = deck?.name || apkg.name;
@@ -295,26 +287,28 @@ export function extractCardsFromApkg(apkg: ParsedApkg): Array<{
   return results;
 }
 
-function stripHtml(html: string): string {
+function cleanHtml(html: string): string {
   return html
     .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
     .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
-    .replace(/<img[^>]*>/gi, '[image]')
-    .replace(/\[sound:[^\]]+\]/gi, '[audio]')
+    .replace(/\[sound:[^\]]+\]/gi, '')
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<\/p>/gi, '\n')
     .replace(/<\/div>/gi, '\n')
     .replace(/<li[^>]*>/gi, '• ')
     .replace(/<\/li>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/\n\s*\n/g, '\n\n')
-    .trim();
+    .replace(/<img([^>]*)>/gi, (match, attrs) => {
+      const srcMatch = attrs.match(/src=["']([^"']+)["']/i);
+      if (srcMatch) {
+        return `<img src="${srcMatch[1]}">`;
+      }
+      return '[image]';
+    })
+    .replace(/<([a-z]+)[^>]*>\s*<\/\1>/gi, '')
+    .replace(/<[^(img|br)]+>/gi, (match) => {
+      if (match.startsWith('</') || match.startsWith('<img') || match.startsWith('<br')) return match;
+      return '';
+    });
 }
 
 export function getApkgMedia(apkg: ParsedApkg, filename: string): Uint8Array | undefined {

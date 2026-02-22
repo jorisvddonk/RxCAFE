@@ -22,7 +22,7 @@
 
 import type { AgentDefinition, AgentSessionContext } from '../lib/agent.js';
 import type { Chunk } from '../lib/chunk.js';
-import { createTextChunk, createNullChunk } from '../lib/chunk.js';
+import { createTextChunk, createNullChunk, createBinaryChunk } from '../lib/chunk.js';
 import { filter, map, mergeMap, catchError, EMPTY } from '../lib/stream.js';
 import { AnkiStore, type AnkiCard, type AnkiSet } from '../lib/anki-store.js';
 import { parseApkg, extractCardsFromApkg, type ParsedApkg } from '../lib/apkg-parser.js';
@@ -57,7 +57,7 @@ const HELP_MESSAGE = `📚 **Anki Flashcard Agent**
 **Study:**
 - \`!study [setName]\` - Start studying (all due cards or specific set)
 - \`!show\` - Reveal the answer
-- \`!again\` / \`!hard\` / \`!good\` / \`!easy\` - Rate card
+- \`!again\` / \`!hard\` \`!good\` \`!easy\` - Rate card
 - \`!stats [setName]\` - View statistics`;
 
 let ankiStore: AnkiStore | null = null;
@@ -136,9 +136,28 @@ function scheduleCard(card: AnkiCard, rating: 'again' | 'hard' | 'good' | 'easy'
   };
 }
 
-async function importApkg(filePath: string, store: AnkiStore): Promise<{ name: string; cardCount: number; error?: string }> {
+function getMimeType(filename: string): string {
+  const ext = extname(filename).toLowerCase();
+  const mimeTypes: Record<string, string> = {
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.gif': 'image/gif',
+    '.webp': 'image/webp',
+    '.svg': 'image/svg+xml',
+    '.bmp': 'image/bmp',
+    '.mp3': 'audio/mpeg',
+    '.wav': 'audio/wav',
+    '.ogg': 'audio/ogg',
+    '.mp4': 'video/mp4',
+    '.webm': 'video/webm',
+  };
+  return mimeTypes[ext] || 'application/octet-stream';
+}
+
+async function importApkg(filePath: string, store: AnkiStore): Promise<{ name: string; cardCount: number; mediaCount: number; error?: string }> {
   if (!existsSync(filePath)) {
-    return { name: basename(filePath), cardCount: 0, error: 'File not found' };
+    return { name: basename(filePath), cardCount: 0, mediaCount: 0, error: 'File not found' };
   }
   
   try {
@@ -161,10 +180,60 @@ async function importApkg(filePath: string, store: AnkiStore): Promise<{ name: s
     const cardsToAdd = cards.map(c => ({ front: c.front, back: c.back }));
     await store.addCards(setId, cardsToAdd);
     
-    return { name: setName, cardCount: cards.length };
+    let mediaCount = 0;
+    for (const [filename, data] of apkg.media) {
+      const mimeType = getMimeType(filename);
+      await store.addMedia(setId, filename, mimeType, data);
+      mediaCount++;
+    }
+    
+    return { name: setName, cardCount: cards.length, mediaCount };
   } catch (err: any) {
-    return { name: basename(filePath), cardCount: 0, error: err.message };
+    return { name: basename(filePath), cardCount: 0, mediaCount: 0, error: err.message };
   }
+}
+
+async function emitCardChunks(
+  card: AnkiCard,
+  store: AnkiStore,
+  session: AgentSessionContext,
+  header: string,
+  showAnswer: boolean = false
+): Promise<void> {
+  const imgRegex = /<img[^>]+src=["']([^"']+)["'][^>]*>/gi;
+  const neededMedia = new Set<string>();
+  let match;
+  const text = showAnswer ? card.back : card.front;
+  while ((match = imgRegex.exec(text)) !== null) {
+    neededMedia.add(match[1]);
+  }
+  
+  for (const filename of neededMedia) {
+    const mediaData = await store.getMedia(card.setId, filename);
+    if (mediaData) {
+      const mediaChunk = createBinaryChunk(mediaData.data, mediaData.mimeType, 'anki-agent', {
+        'chat.role': 'assistant',
+        'anki.media-filename': filename
+      });
+      session.outputStream.next(mediaChunk);
+    }
+  }
+  
+  const stripImages = (html: string) => html.replace(/<img[^>]*>/gi, '').trim();
+  
+  let content = header;
+  if (showAnswer) {
+    content += `\n\n${stripImages(card.back)}\n\nRate: \`!again\` \`!hard\` \`!good\` \`!easy\``;
+  } else {
+    content += `\n\n${stripImages(card.front)}`;
+  }
+  
+  const textChunk = createMarkdownChunk(content, 'anki-agent', {
+    'chat.role': 'assistant',
+    'anki.card-id': card.id
+  });
+  
+  session.outputStream.next(textChunk);
 }
 
 export const ankiAgent: AgentDefinition = {
@@ -185,13 +254,13 @@ export const ankiAgent: AgentDefinition = {
     if (APKG_WATCH_DIRS.length > 0) {
       for (const dir of APKG_WATCH_DIRS) {
         if (existsSync(dir)) {
-          const files = readdirSync(dir).filter(f => f.endsWith('.apkg'));
+          const files = readdirSync(dir).filter(f => f.toLowerCase().endsWith('.apkg'));
           for (const file of files) {
             const filePath = join(dir, file);
             const result = await importApkg(filePath, store);
             if (result.cardCount > 0) {
               session.outputStream.next(createMarkdownChunk(
-                `📦 Auto-imported: **${result.name}** (${result.cardCount} cards)`,
+                `📦 Auto-imported: **${result.name}** (${result.cardCount} cards, ${result.mediaCount} media)`,
                 'anki-agent',
                 { 'chat.role': 'assistant' }
               ));
@@ -262,12 +331,14 @@ export const ankiAgent: AgentDefinition = {
               return createMarkdownChunk(`❌ Set "${name}" not found.`, 'anki-agent', { 'chat.role': 'assistant' });
             }
             const cards = await store.getCardsBySet(set.id);
+            const media = await store.getMediaBySet(set.id);
             const lines = [
               `${set.isApkg ? '📦' : '📁'} **${set.name}**`,
               set.description || '_No description_',
               ``,
               `Cards: ${set.cardCount}`,
               `Due: ${set.dueCount}`,
+              `Media: ${media.length}`,
               set.isApkg ? `Source: ${set.apkgPath}` : '',
               ``,
               `Cards:`,
@@ -320,7 +391,7 @@ export const ankiAgent: AgentDefinition = {
               return createMarkdownChunk(`❌ Failed to import ${result.name}: ${result.error}`, 'anki-agent', { 'chat.role': 'assistant' });
             }
             
-            return createMarkdownChunk(`✅ Imported **${result.name}** (${result.cardCount} cards)`, 'anki-agent', { 'chat.role': 'assistant' });
+            return createMarkdownChunk(`✅ Imported **${result.name}** (${result.cardCount} cards, ${result.mediaCount} media)`, 'anki-agent', { 'chat.role': 'assistant' });
           }
           
           if (text.startsWith('!apkg-dir ')) {
@@ -351,7 +422,7 @@ export const ankiAgent: AgentDefinition = {
               if (result.error) {
                 results.push(`❌ ${file}: ${result.error}`);
               } else {
-                results.push(`✅ ${result.name}: ${result.cardCount} cards`);
+                results.push(`✅ ${result.name}: ${result.cardCount} cards, ${result.mediaCount} media`);
                 totalCards += result.cardCount;
               }
             }
@@ -442,11 +513,11 @@ Current session:
             studySession.currentCard = dueCards[0];
             studySession.showingFront = true;
             
-            return createMarkdownChunk(
-              `📚 Card 1\n\n${studySession.currentCard.front}\n\nType \`!show\` to reveal answer, or rate: \`!again\` \`!hard\` \`!good\` \`!easy\``,
-              'anki-agent',
-              { 'chat.role': 'assistant', 'anki.card-id': studySession.currentCard.id }
-            );
+            await emitCardChunks(studySession.currentCard, store, session, `📚 Card 1`);
+            
+            const callbacks = session.callbacks;
+            if (callbacks?.onFinish) callbacks.onFinish();
+            return null;
           }
           
           if (text === '!show') {
@@ -456,11 +527,11 @@ Current session:
             
             studySession.showingFront = false;
             
-            return createMarkdownChunk(
-              `${studySession.currentCard.front}\n\n---\n\n${studySession.currentCard.back}\n\nRate: \`!again\` \`!hard\` \`!good\` \`!easy\``,
-              'anki-agent',
-              { 'chat.role': 'assistant', 'anki.card-id': studySession.currentCard.id }
-            );
+            await emitCardChunks(studySession.currentCard, store, session, `📚 Card`, true);
+            
+            const callbacks = session.callbacks;
+            if (callbacks?.onFinish) callbacks.onFinish();
+            return null;
           }
           
           const ratings: Array<'again' | 'hard' | 'good' | 'easy'> = ['again', 'hard', 'good', 'easy'];
@@ -508,11 +579,11 @@ Current session:
                 { 'chat.role': 'assistant' }
               ));
               
-              return createMarkdownChunk(
-                `📚 Card ${studySession.reviewed + 1}\n\n${studySession.currentCard.front}\n\nType \`!show\` to reveal answer, or rate: \`!again\` \`!hard\` \`!good\` \`!easy\``,
-                'anki-agent',
-                { 'chat.role': 'assistant', 'anki.card-id': studySession.currentCard.id }
-              );
+              await emitCardChunks(studySession.currentCard, store, session, `📚 Card ${studySession.reviewed + 1}`);
+              
+              const callbacks = session.callbacks;
+              if (callbacks?.onFinish) callbacks.onFinish();
+              return null;
             }
           }
           
@@ -549,11 +620,13 @@ Current session:
         return EMPTY;
       })
     ).subscribe({
-      next: (chunk: Chunk) => {
-        session.outputStream.next(chunk);
-        const callbacks = session.callbacks;
-        if (callbacks?.onFinish) {
-          callbacks.onFinish();
+      next: (chunk: Chunk | null) => {
+        if (chunk) {
+          session.outputStream.next(chunk);
+          const callbacks = session.callbacks;
+          if (callbacks?.onFinish) {
+            callbacks.onFinish();
+          }
         }
       },
       error: (error: Error) => session.errorStream.next(error)

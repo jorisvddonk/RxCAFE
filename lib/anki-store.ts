@@ -1,6 +1,6 @@
 /**
  * Anki Card Store
- * SQLite persistence for flashcard sets and study progress
+ * SQLite persistence for card sets, cards, and study progress
  */
 
 import { Database } from 'bun:sqlite';
@@ -74,11 +74,32 @@ export class AnkiStore {
     `);
     
     this.db.run(`
+      CREATE TABLE IF NOT EXISTS anki_media (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        set_id INTEGER NOT NULL,
+        card_id INTEGER,
+        filename TEXT NOT NULL,
+        mime_type TEXT,
+        data BLOB NOT NULL,
+        FOREIGN KEY (set_id) REFERENCES anki_sets(id) ON DELETE CASCADE,
+        FOREIGN KEY (card_id) REFERENCES anki_cards(id) ON DELETE CASCADE
+      )
+    `);
+    
+    this.db.run(`
       CREATE INDEX IF NOT EXISTS idx_anki_cards_set_id ON anki_cards(set_id)
     `);
     
     this.db.run(`
       CREATE INDEX IF NOT EXISTS idx_anki_cards_due ON anki_cards(due)
+    `);
+    
+    this.db.run(`
+      CREATE INDEX IF NOT EXISTS idx_anki_media_set_id ON anki_media(set_id)
+    `);
+    
+    this.db.run(`
+      CREATE INDEX IF NOT EXISTS idx_anki_media_card_id ON anki_media(card_id)
     `);
   }
   
@@ -325,5 +346,41 @@ export class AnkiStore {
     const result = stmt.get(...params) as { count: number };
     stmt.finalize();
     return result.count;
+  }
+  
+  async addMedia(setId: number, filename: string, mimeType: string, data: Uint8Array, cardId?: number): Promise<number> {
+    const stmt = this.db.prepare(`
+      INSERT INTO anki_media (set_id, card_id, filename, mime_type, data)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+    const result = stmt.run(setId, cardId || null, filename, mimeType, Buffer.from(data));
+    stmt.finalize();
+    return result.lastInsertRowid as number;
+  }
+  
+  async getMedia(setId: number, filename: string): Promise<{ data: Uint8Array; mimeType: string } | null> {
+    const stmt = this.db.prepare(`
+      SELECT data, mime_type as mimeType FROM anki_media WHERE set_id = ? AND filename = ?
+    `);
+    const result = stmt.get(setId, filename) as { data: Buffer; mimeType: string } | undefined;
+    stmt.finalize();
+    if (!result) return null;
+    return { data: new Uint8Array(result.data), mimeType: result.mimeType || 'application/octet-stream' };
+  }
+  
+  async getMediaBySet(setId: number): Promise<Array<{ filename: string; mimeType: string }>> {
+    const stmt = this.db.prepare(`
+      SELECT DISTINCT filename, mime_type as mimeType FROM anki_media WHERE set_id = ?
+    `);
+    const results = stmt.all(setId) as Array<{ filename: string; mimeType: string }>;
+    stmt.finalize();
+    return results;
+  }
+  
+  async deleteMediaBySet(setId: number): Promise<number> {
+    const stmt = this.db.prepare(`DELETE FROM anki_media WHERE set_id = ?`);
+    const result = stmt.run(setId);
+    stmt.finalize();
+    return result.changes;
   }
 }
