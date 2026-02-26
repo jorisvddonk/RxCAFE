@@ -2,6 +2,40 @@
 
 A reactive chat application built with the ObservableCAFE architecture pattern, using Bun.js. Supports both KoboldCPP and Ollama LLM backends with advanced session management, background agents, and multi-modal support.
 
+## Philosophy
+
+ObservableCAFE takes a minimalist approach to LLM-powered agents. The core premise is that LLMs should do as little as possible within the agentic loop—instead of iteratively reasoning and acting, they should provide their entire plan (as code) upfront.
+
+This approach has several advantages:
+
+- **Avoids semantic collapse**: Agents stay on track by following explicit code rather than drifting through repeated LLM reasoning.
+- **Smaller context sizes**: A single script is far smaller than a multi-turn reasoning trace.
+- **Resistant to prompt injection**: Poisoning attacks like "ignore previous instructions" have no effect because the LLM isn't executing commands at runtime—it's generating a script that runs independently.
+- **Enables flow reuse**: Generated scripts can be reviewed, tweaked, reused, and composed.
+- **Better performance**: Most tasks are more reliably solved by code than by hoping the LLM reasons correctly through multiple steps.
+
+For example, "delete all spam in my inbox" would have an LLM generate a script that fetches emails, runs a classifier against each one, presents the candidates for confirmation, and deletes on approval. Only two LLM calls are needed: one to generate the script, one to classify emails. The rest is deterministic code.
+
+This contrasts with frameworks like OpenClaw that allow free-form agentic loops but have bloated initial context and variable success rates. ObservableCAFE enforces these constraints by design.
+
+ObservableCAFE is particularly useful for highly repetitive workflows. Daily spaced repetition learning, for instance, is completely scripted—the LLM only provides summaries and recommendations at the end. This makes the system reliable enough to run unattended.
+
+ObservableCAFE uses **ReactiveX (RxJS)** for its pipeline architecture—and there's a good reason. LLMs are already fluent in RxJS. They understand operators like `map`, `filter`, `mergeMap`, `catchError`, and they generate clean, declarative code that reads almost like English.
+
+This makes agents remarkably concise and readable. A typical agent is just a dozen lines of RxJS operators describing the data flow:
+
+```typescript
+session.inputStream.pipe(
+  filter(c => c.annotations['chat.role'] === 'user'),
+  mergeMap(chunk => processWithEvaluator(chunk, session.createEvaluator())),
+  catchError(err => { session.errorStream.next(err); return EMPTY; })
+).subscribe({ next: c => session.outputStream.next(c) });
+```
+
+Agents are declarative by nature—they say *what* should happen to data, not *how* each step is implemented. This aligns perfectly with the philosophy of generating scripts upfront rather than reasoning at runtime.
+
+**Traditional agents still supported**: If you prefer the classic iterative reasoning-and-acting pattern, you can still build agents that call the LLM in loops. ObservableCAFE doesn't force any particular approach—it's just optimized for the script-generating style.
+
 ## Features
 
 - **ObservableCAFE Architecture**: Chunks, annotations, and evaluators following the ObservableCAFE spec.
