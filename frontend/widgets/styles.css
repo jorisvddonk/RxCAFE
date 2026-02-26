@@ -1,0 +1,399 @@
+/**
+ * Agent Form Elements (AFE) - Shared CSS Foundation
+ * Provides theming, focus states, and mobile-responsive base styles
+ * Components inherit from these CSS custom properties
+ */
+
+:root {
+  /* Colors - Light theme (default) */
+  --afe-color-primary: #2563eb;
+  --afe-color-primary-hover: #1d4ed8;
+  --afe-color-primary-light: #dbeafe;
+  --afe-color-success: #16a34a;
+  --afe-color-error: #dc2626;
+  --afe-color-error-light: #fef2f2;
+  --afe-color-warning: #d97706;
+  --afe-color-text: #1f2937;
+  --afe-color-text-muted: #6b7280;
+  --afe-color-text-inverse: #ffffff;
+  --afe-color-border: #d1d5db;
+  --afe-color-border-focus: #2563eb;
+  --afe-color-background: #ffffff;
+  --afe-color-background-subtle: #f9fafb;
+  --afe-color-background-disabled: #e5e7eb;
+  
+  /* Spacing */
+  --afe-spacing-xs: 0.25rem;
+  --afe-spacing-sm: 0.5rem;
+  --afe-spacing-md: 1rem;
+  --afe-spacing-lg: 1.5rem;
+  --afe-spacing-xl: 2rem;
+  
+  /* Typography */
+  --afe-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+  --afe-font-size-sm: 0.875rem;
+  --afe-font-size-base: 1rem;
+  --afe-font-size-lg: 1.125rem;
+  --afe-font-size-xl: 1.25rem;
+  --afe-font-weight-normal: 400;
+  --afe-font-weight-medium: 500;
+  --afe-font-weight-bold: 600;
+  --afe-line-height: 1.5;
+  
+  /* Borders */
+  --afe-border-radius: 0.5rem;
+  --afe-border-radius-sm: 0.25rem;
+  --afe-border-width: 1px;
+  
+  /* Shadows */
+  --afe-shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --afe-shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+  --afe-shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+  
+  /* Transitions */
+  --afe-transition: 150ms ease-in-out;
+  
+  /* Focus ring */
+  --afe-focus-ring: 0 0 0 3px rgba(37, 99, 235, 0.3);
+}
+
+/* Dark theme */
+[data-theme="dark"] {
+  --afe-color-primary: #3b82f6;
+  --afe-color-primary-hover: #60a5fa;
+  --afe-color-primary-light: #1e3a5f;
+  --afe-color-success: #22c55e;
+  --afe-color-error: #ef4444;
+  --afe-color-error-light: #450a0a;
+  --afe-color-warning: #f59e0b;
+  --afe-color-text: #f9fafb;
+  --afe-color-text-muted: #9ca3af;
+  --afe-color-text-inverse: #1f2937;
+  --afe-color-border: #4b5563;
+  --afe-color-border-focus: #3b82f6;
+  --afe-color-background: #1f2937;
+  --afe-color-background-subtle: #111827;
+  --afe-color-background-disabled: #374151;
+}
+
+/* Base styles for form elements */
+afe-select,
+afe-radio,
+afe-text,
+afe-number,
+afe-checkbox,
+afe-fieldset {
+  display: block;
+  font-family: var(--afe-font-family);
+  font-size: var(--afe-font-size-base);
+  color: var(--afe-color-text);
+}
+
+/* Shared label styles */
+.afe-label {
+  display: block;
+  font-weight: var(--afe-font-weight-medium);
+  margin-bottom: var(--afe-spacing-xs);
+  color: var(--afe-color-text);
+}
+
+/* Shared input wrapper */
+.afe-input-wrapper {
+  position: relative;
+  width: 100%;
+}
+
+/* Shared input styles */
+.afe-input,
+.afe-select {
+  width: 100%;
+  padding: var(--afe-spacing-sm) var(--afe-spacing-md);
+  font-size: var(--afe-font-size-base);
+  font-family: var(--afe-font-family);
+  line-height: var(--afe-line-height);
+  color: var(--afe-color-text);
+  background-color: var(--afe-color-background);
+  border: var(--afe-border-width) solid var(--afe-color-border);
+  border-radius: var(--afe-border-radius);
+  transition: border-color var(--afe-transition), box-shadow var(--afe-transition);
+  box-sizing: border-box;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+}
+
+.afe-input:focus,
+.afe-select:focus {
+  outline: none;
+  border-color: var(--afe-color-border-focus);
+  box-shadow: var(--afe-focus-ring);
+}
+
+.afe-input:disabled,
+.afe-select:disabled {
+  background-color: var(--afe-color-background-disabled);
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.afe-input::placeholder {
+  color: var(--afe-color-text-muted);
+}
+
+/* Error state */
+.afe-error .afe-input,
+.afe-error .afe-select {
+  border-color: var(--afe-color-error);
+}
+
+.afe-error-message {
+  color: var(--afe-color-error);
+  font-size: var(--afe-font-size-sm);
+  margin-top: var(--afe-spacing-xs);
+}
+
+/* Required indicator */
+.afe-required::after {
+  content: "*";
+  color: var(--afe-color-error);
+  margin-left: var(--afe-spacing-xs);
+}
+
+/* Description text */
+.afe-description {
+  color: var(--afe-color-text-muted);
+  font-size: var(--afe-font-size-sm);
+  margin-top: var(--afe-spacing-xs);
+}
+
+/* Checkbox specific */
+.afe-checkbox-wrapper {
+  display: flex;
+  align-items: center;
+  gap: var(--afe-spacing-sm);
+  cursor: pointer;
+}
+
+.afe-checkbox {
+  width: 1.25rem;
+  height: 1.25rem;
+  accent-color: var(--afe-color-primary);
+  cursor: pointer;
+}
+
+/* Radio specific */
+.afe-radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--afe-spacing-sm);
+}
+
+.afe-radio-option {
+  display: flex;
+  align-items: center;
+  gap: var(--afe-spacing-sm);
+  cursor: pointer;
+  padding: var(--afe-spacing-sm);
+  border-radius: var(--afe-border-radius-sm);
+  transition: background-color var(--afe-transition);
+}
+
+.afe-radio-option:hover {
+  background-color: var(--afe-color-background-subtle);
+}
+
+.afe-radio {
+  width: 1.25rem;
+  height: 1.25rem;
+  accent-color: var(--afe-color-primary);
+  cursor: pointer;
+}
+
+/* Fieldset */
+.afe-fieldset {
+  border: var(--afe-border-width) solid var(--afe-color-border);
+  border-radius: var(--afe-border-radius);
+  padding: var(--afe-spacing-md);
+  background-color: var(--afe-color-background-subtle);
+}
+
+.afe-fieldset-legend {
+  font-weight: var(--afe-font-weight-medium);
+  padding: 0 var(--afe-spacing-sm);
+  color: var(--afe-color-text);
+}
+
+/* Wizard specific */
+.afe-wizard {
+  width: 100%;
+}
+
+.afe-wizard-steps {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: var(--afe-spacing-lg);
+  border-bottom: var(--afe-border-width) solid var(--afe-color-border);
+  padding-bottom: var(--afe-spacing-sm);
+}
+
+.afe-wizard-step {
+  flex: 1;
+  text-align: center;
+  padding: var(--afe-spacing-sm);
+  color: var(--afe-color-text-muted);
+  font-size: var(--afe-font-size-sm);
+  font-weight: var(--afe-font-weight-medium);
+}
+
+.afe-wizard-step.active {
+  color: var(--afe-color-primary);
+  border-bottom: 2px solid var(--afe-color-primary);
+  margin-bottom: -1px;
+}
+
+.afe-wizard-step.completed {
+  color: var(--afe-color-success);
+}
+
+.afe-wizard-step-number {
+  display: inline-block;
+  width: 1.5rem;
+  height: 1.5rem;
+  line-height: 1.5rem;
+  border-radius: 50%;
+  background-color: var(--afe-color-background-subtle);
+  margin-right: var(--afe-spacing-xs);
+  font-size: var(--afe-font-size-sm);
+}
+
+.afe-wizard-step.active .afe-wizard-step-number {
+  background-color: var(--afe-color-primary);
+  color: var(--afe-color-text-inverse);
+}
+
+.afe-wizard-step.completed .afe-wizard-step-number {
+  background-color: var(--afe-color-success);
+  color: var(--afe-color-text-inverse);
+}
+
+.afe-wizard-content {
+  min-height: 200px;
+}
+
+.afe-wizard-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--afe-spacing-md);
+  margin-top: var(--afe-spacing-lg);
+  padding-top: var(--afe-spacing-md);
+  border-top: var(--afe-border-width) solid var(--afe-color-border);
+}
+
+/* Button styles */
+.afe-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--afe-spacing-sm) var(--afe-spacing-md);
+  font-size: var(--afe-font-size-base);
+  font-weight: var(--afe-font-weight-medium);
+  font-family: var(--afe-font-family);
+  border-radius: var(--afe-border-radius);
+  border: none;
+  cursor: pointer;
+  transition: all var(--afe-transition);
+  text-decoration: none;
+}
+
+.afe-btn:focus {
+  outline: none;
+  box-shadow: var(--afe-focus-ring);
+}
+
+.afe-btn-primary {
+  background-color: var(--afe-color-primary);
+  color: var(--afe-color-text-inverse);
+}
+
+.afe-btn-primary:hover {
+  background-color: var(--afe-color-primary-hover);
+}
+
+.afe-btn-primary:disabled {
+  background-color: var(--afe-color-background-disabled);
+  cursor: not-allowed;
+}
+
+.afe-btn-secondary {
+  background-color: transparent;
+  color: var(--afe-color-text);
+  border: var(--afe-border-width) solid var(--afe-color-border);
+}
+
+.afe-btn-secondary:hover {
+  background-color: var(--afe-color-background-subtle);
+}
+
+/* Review summary */
+.afe-review {
+  background-color: var(--afe-color-background-subtle);
+  border-radius: var(--afe-border-radius);
+  padding: var(--afe-spacing-md);
+}
+
+.afe-review-item {
+  display: flex;
+  justify-content: space-between;
+  padding: var(--afe-spacing-sm) 0;
+  border-bottom: 1px solid var(--afe-color-border);
+}
+
+.afe-review-item:last-child {
+  border-bottom: none;
+}
+
+.afe-review-label {
+  color: var(--afe-color-text-muted);
+}
+
+.afe-review-value {
+  font-weight: var(--afe-font-weight-medium);
+  color: var(--afe-color-text);
+}
+
+/* Mobile responsive */
+@media (max-width: 640px) {
+  .afe-wizard-steps {
+    flex-direction: column;
+    align-items: stretch;
+    border-bottom: none;
+    gap: var(--afe-spacing-xs);
+  }
+  
+  .afe-wizard-step {
+    text-align: left;
+    display: flex;
+    align-items: center;
+    padding: var(--afe-spacing-sm);
+    border-radius: var(--afe-border-radius-sm);
+    border-bottom: none;
+  }
+  
+  .afe-wizard-step.active {
+    background-color: var(--afe-color-primary-light);
+    border-bottom: none;
+    margin-bottom: 0;
+  }
+  
+  .afe-wizard-step.completed {
+    background-color: transparent;
+  }
+  
+  .afe-wizard-actions {
+    flex-direction: column;
+  }
+  
+  .afe-wizard-actions .afe-btn {
+    width: 100%;
+  }
+}

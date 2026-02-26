@@ -1754,6 +1754,22 @@ function getIconSvg(): string {
   }
 }
 
+function getWidgetFile(filename: string): string | null {
+  try {
+    return readFileSync(join(__dirname, 'frontend', 'widgets', filename), 'utf-8');
+  } catch {
+    return null;
+  }
+}
+
+function getWidgetCss(): string {
+  try {
+    return readFileSync(join(__dirname, 'frontend', 'widgets', 'styles.css'), 'utf-8');
+  } catch {
+    return '';
+  }
+}
+
 // =============================================================================
 // HTTP Server
 // =============================================================================
@@ -1806,6 +1822,25 @@ const server = serve({
       return new Response(getServiceWorker(), {
         headers: { 'Content-Type': 'application/javascript', ...corsHeaders }
       });
+    }
+    
+    // Widget files (AFE - Agent Form Elements)
+    if (pathname === '/widgets/styles.css') {
+      return new Response(getWidgetCss(), {
+        headers: { 'Content-Type': 'text/css', ...corsHeaders }
+      });
+    }
+    
+    if (pathname.startsWith('/widgets/')) {
+      const filename = pathname.slice(9); // Remove '/widgets/'
+      const content = getWidgetFile(filename);
+      if (content !== null) {
+        const contentType = filename.endsWith('.js') ? 'application/javascript' : 
+                           filename.endsWith('.css') ? 'text/css' : 'text/plain';
+        return new Response(content, {
+          headers: { 'Content-Type': contentType, ...corsHeaders }
+        });
+      }
     }
     
     if (pathname === '/icon.svg') {

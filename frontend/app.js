@@ -123,7 +123,11 @@ class RXCafeChat {
         this.abortBtn = document.getElementById('abort-btn');
         this.copySessionIdBtn = document.getElementById('copy-session-id-btn');
         
-        // Modal elements
+        // Modal elements - Wizard
+        this.wizardModal = document.getElementById('wizard-modal');
+        this.sessionWizard = document.getElementById('session-wizard');
+        
+        // Legacy modal elements (kept for backward compatibility)
         this.backendModal = document.getElementById('backend-modal');
         this.createSessionBtn = document.getElementById('create-session-btn');
         this.cancelBtn = document.getElementById('cancel-btn');
@@ -181,9 +185,16 @@ class RXCafeChat {
     }
 
     bindEvents() {
-        this.newSessionBtn.addEventListener('click', () => this.showBackendModal());
-        this.createSessionBtn.addEventListener('click', () => this.createSession());
-        this.cancelBtn.addEventListener('click', () => this.hideBackendModal());
+        this.newSessionBtn.addEventListener('click', () => this.showWizardModal());
+        
+        // Legacy event bindings (kept for fallback)
+        if (this.createSessionBtn) {
+            this.createSessionBtn.addEventListener('click', () => this.createSession());
+        }
+        if (this.cancelBtn) {
+            this.cancelBtn.addEventListener('click', () => this.hideWizardModal());
+        }
+        
         this.sendBtn.addEventListener('click', () => this.sendMessage());
         this.abortBtn.addEventListener('click', () => this.abortGeneration());
         this.copySessionIdBtn.addEventListener('click', () => this.copySessionId());
@@ -195,26 +206,7 @@ class RXCafeChat {
             }
         });
         
-        // Backend radio change
-        this.backendRadios.forEach(radio => {
-            radio.addEventListener('change', () => {
-                const isOllama = radio.value === 'ollama' && radio.checked;
-                this.ollamaModelSection.style.display = isOllama ? 'block' : 'none';
-                if (isOllama) {
-                    this.loadOllamaModels('ollama');
-                }
-            });
-        });
-        
-        // Agent select change
-        this.agentSelect.addEventListener('change', () => {
-            const selectedAgent = this.agents.find(a => a.name === this.agentSelect.value);
-            if (selectedAgent) {
-                this.agentDescription.textContent = selectedAgent.description || 'No description';
-            } else {
-                this.agentDescription.textContent = '';
-            }
-        });
+        // Legacy handlers (for fallback modal)
         
         // Context menu actions
         this.contextTrust.addEventListener('click', () => this.toggleTrust(true));
@@ -240,7 +232,7 @@ class RXCafeChat {
         }
         this.sidebarNewSessionBtn.addEventListener('click', () => {
             this.hideSessionsSidebar();
-            this.showBackendModal();
+            this.showWizardModal();
         });
 
         if (this.sidebarThemeToggleBtn) {
@@ -393,6 +385,11 @@ class RXCafeChat {
     }
     
     async showBackendModal() {
+        // Fallback: use wizard modal if available
+        if (this.wizardModal) {
+            this.showWizardModal();
+            return;
+        }
         this.backendModal.style.display = 'flex';
         
         // Load agents and sessions
@@ -404,6 +401,98 @@ class RXCafeChat {
         }
     }
     
+    async showWizardModal() {
+        if (!this.wizardModal || !this.sessionWizard) {
+            // Fallback to old modal
+            this.showBackendModal();
+            return;
+        }
+        
+        this.wizardModal.style.display = 'flex';
+        
+        // Load agents
+        await this.loadAgents();
+        
+        // Reset wizard state
+        if (this.sessionWizard.reset) {
+            this.sessionWizard.reset();
+        }
+        
+        // Pass agents and API URL to wizard
+        this.sessionWizard.agents = this.agents;
+        this.sessionWizard.apiUrl = this.apiUrl('');
+        
+        // Wire up wizard events
+        this.sessionWizard.addEventListener('afe-wizard-complete', (e) => this.handleWizardComplete(e));
+        this.sessionWizard.addEventListener('afe-wizard-close', () => this.hideWizardModal());
+    }
+    
+    hideWizardModal() {
+        if (this.wizardModal) {
+            this.wizardModal.style.display = 'none';
+        }
+    }
+    
+    async handleWizardComplete(e) {
+        const { agentId, config } = e.detail;
+        
+        this.hideWizardModal();
+        await this.createSessionFromWizard(agentId, config);
+        
+        // Reset wizard for next time
+        if (this.sessionWizard.reset) {
+            this.sessionWizard.reset();
+        }
+    }
+    
+    async createSessionFromWizard(agentId, config) {
+        const { backend, model, systemPrompt, llmParams, ...restConfig } = config;
+        
+        try {
+            const response = await fetch(this.apiUrl('/api/session'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    backend: backend,
+                    model: model,
+                    agentId: agentId,
+                    llmParams: llmParams,
+                    systemPrompt: systemPrompt,
+                    ...restConfig
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (data.sessionId) {
+                // Add to known sessions
+                const existingIndex = this.knownSessions.findIndex(s => s.id === data.sessionId);
+                if (existingIndex === -1) {
+                    this.knownSessions.push({
+                        id: data.sessionId,
+                        agentName: data.agentName,
+                        isBackground: data.isBackground
+                    });
+                }
+                
+                // Use switchToSession to properly load history, render chunks, update UI
+                await this.switchToSession(data.sessionId);
+                
+                // Add welcome messages after switchToSession completes
+                this.addSystemMessage(`Session created: ${this.agentName}`);
+                if (backend) {
+                    this.addSystemMessage(`Backend: ${backend}${model ? ' (' + model + ')' : ''}`);
+                }
+                this.addSystemMessage('Commands: /web URL | /system prompt | /addchunk JSON');
+                
+                this.messageInput.focus();
+            }
+        } catch (error) {
+            console.error('Failed to create session:', error);
+            this.showError('Failed to create session. Is the server running?');
+        }
+    }
+    
     async loadAgents() {
         try {
             const response = await fetch(this.apiUrl('/api/agents'));
@@ -411,20 +500,26 @@ class RXCafeChat {
             
             if (data.agents && data.agents.length > 0) {
                 this.agents = data.agents;
-                this.agentSelect.innerHTML = data.agents
-                    .map(a => `<option value="${a.name}">${a.name}${a.startInBackground ? ' (background)' : ''}</option>`)
-                    .join('');
                 
-                // Select default agent and show description
-                const defaultAgent = data.agents.find(a => a.name === 'default') || data.agents[0];
-                if (defaultAgent) {
-                    this.agentSelect.value = defaultAgent.name;
-                    this.agentDescription.textContent = defaultAgent.description || '';
+                // If using old modal, populate the select
+                if (this.agentSelect) {
+                    this.agentSelect.innerHTML = data.agents
+                        .map(a => `<option value="${a.name}">${a.name}${a.startInBackground ? ' (background)' : ''}</option>`)
+                        .join('');
+                    
+                    // Select default agent and show description
+                    const defaultAgent = data.agents.find(a => a.name === 'default') || data.agents[0];
+                    if (defaultAgent) {
+                        this.agentSelect.value = defaultAgent.name;
+                        this.agentDescription.textContent = defaultAgent.description || '';
+                    }
                 }
             }
         } catch (error) {
             console.error('Failed to load agents:', error);
-            this.agentSelect.innerHTML = '<option value="default">default</option>';
+            if (this.agentSelect) {
+                this.agentSelect.innerHTML = '<option value="default">default</option>';
+            }
         }
     }
     
@@ -769,7 +864,11 @@ class RXCafeChat {
     }
     
     hideBackendModal() {
-        this.backendModal.style.display = 'none';
+        if (this.wizardModal) {
+            this.wizardModal.style.display = 'none';
+        } else if (this.backendModal) {
+            this.backendModal.style.display = 'none';
+        }
     }
     
     async createSession() {
@@ -834,7 +933,7 @@ class RXCafeChat {
     
     async sendMessage() {
         if (!this.sessionId) {
-            this.showBackendModal();
+            this.showWizardModal();
             return;
         }
         

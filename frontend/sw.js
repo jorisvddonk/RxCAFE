@@ -1,11 +1,19 @@
-const CACHE_NAME = 'rxcafe-v38';
+const CACHE_NAME = 'rxcafe-v40';
 const STATIC_ASSETS = [
   '/',
   '/app.js',
   '/styles.css',
   '/manifest.json',
   '/icon-192.png',
-  '/icon-512.png'
+  '/icon-512.png',
+  '/widgets/styles.css',
+  '/widgets/afe-select.js',
+  '/widgets/afe-radio.js',
+  '/widgets/afe-text.js',
+  '/widgets/afe-number.js',
+  '/widgets/afe-checkbox.js',
+  '/widgets/afe-fieldset.js',
+  '/widgets/afe-wizard.js'
 ];
 
 function fetchWithTimeout(request, timeout = 5000) {
@@ -41,8 +49,8 @@ self.addEventListener('activate', (event) => {
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   
-  // API calls always go to network
-  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/chat/')) {
+  // Widgets and API always go to network (no caching)
+  if (url.pathname.startsWith('/widgets/') || url.pathname.startsWith('/api/') || url.pathname.startsWith('/chat/')) {
     event.respondWith(
       fetchWithTimeout(event.request).catch(() => {
         return new Response(JSON.stringify({ error: 'Network error' }), {
