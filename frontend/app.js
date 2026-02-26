@@ -841,8 +841,17 @@ class RXCafeChat {
                 if (chunk.annotations && chunk.annotations['com.rxcafe.example.sentiment']) {
                     this.updateSentiment(el, chunk.annotations['com.rxcafe.example.sentiment']);
                 }
-            } else if (role === 'assistant') {
-                this.addMessage('assistant', chunk.content, chunk.id, chunk.annotations);
+            } else             if (role === 'assistant') {
+                // Check if this is a tool call result
+                if (chunk.annotations?.['tool.name']) {
+                    this.addToolCallMessage(chunk);
+                } else {
+                    const el = this.addMessage('assistant', chunk.content, chunk.id, chunk.annotations);
+                    // If tool call detected but not yet executed, show indicator
+                    if (chunk.annotations?.['com.rxcafe.tool-detection']?.hasToolCalls) {
+                        this.addToolCallIndicator(el, chunk.annotations['com.rxcafe.tool-detection'].toolCalls);
+                    }
+                }
             }
         }
     }
@@ -861,6 +870,102 @@ class RXCafeChat {
             labelEl.style.opacity = '0.8';
             messageEl.querySelector('.message-content').appendChild(labelEl);
         }
+    }
+
+    addToolCallMessage(chunk) {
+        const toolName = chunk.annotations?.['tool.name'];
+        const toolResult = chunk.annotations?.['tool.results'];
+        const toolDetection = chunk.annotations?.['com.rxcafe.tool-detection'];
+
+        const messageEl = document.createElement('div');
+        this._elCounter++;
+        messageEl.dataset.elId = this._elCounter;
+        messageEl.dataset.chunkId = chunk.id;
+        messageEl.className = 'message assistant tool-call';
+
+        const contentEl = document.createElement('div');
+        contentEl.className = 'message-content';
+
+        const headerEl = document.createElement('div');
+        headerEl.className = 'tool-call-header';
+
+        const iconSpan = document.createElement('span');
+        iconSpan.className = 'tool-icon';
+        iconSpan.textContent = '🔧';
+
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'tool-name';
+        nameSpan.textContent = toolName || 'Unknown Tool';
+
+        headerEl.appendChild(iconSpan);
+        headerEl.appendChild(nameSpan);
+
+        contentEl.appendChild(headerEl);
+
+        // Show the original tool call if detected
+        if (toolDetection?.toolCalls?.length > 0) {
+            const toolCall = toolDetection.toolCalls[0];
+            const paramsEl = document.createElement('div');
+            paramsEl.className = 'tool-params';
+            paramsEl.textContent = JSON.stringify(toolCall.parameters, null, 2);
+            contentEl.appendChild(paramsEl);
+        }
+
+        // Show the result
+        if (toolResult !== undefined) {
+            const resultEl = document.createElement('div');
+            resultEl.className = 'tool-result';
+            resultEl.textContent = typeof toolResult === 'object' 
+                ? JSON.stringify(toolResult, null, 2)
+                : String(toolResult);
+            contentEl.appendChild(resultEl);
+        }
+
+        // Also show the text content if present (formatted result from tool-executor)
+        if (chunk.content) {
+            const textEl = document.createElement('div');
+            textEl.className = 'message-body';
+            textEl.style.marginTop = '0.5rem';
+            textEl.textContent = chunk.content;
+            contentEl.appendChild(textEl);
+        }
+
+        messageEl.appendChild(contentEl);
+
+        // Right-click context menu
+        messageEl.addEventListener('contextmenu', (e) => this.showContextMenu(e, chunk.id));
+
+        this.messagesEl.appendChild(messageEl);
+        this.chunkElements.set(chunk.id, messageEl);
+        this.scrollToBottom();
+    }
+
+    addToolCallIndicator(messageEl, toolCalls) {
+        if (!messageEl || !toolCalls?.length) return;
+
+        let metaEl = messageEl.querySelector('.message-meta');
+        if (!metaEl) {
+            metaEl = document.createElement('div');
+            metaEl.className = 'message-meta';
+            const contentEl = messageEl.querySelector('.message-content');
+            if (contentEl) {
+                contentEl.appendChild(metaEl);
+            }
+        }
+
+        toolCalls.forEach((toolCall, idx) => {
+            const toolIndicator = document.createElement('div');
+            toolIndicator.className = 'tool-call-indicator';
+            toolIndicator.style.cssText = 'font-size: 0.7rem; margin-top: 0.4rem; padding: 0.4rem; background-color: rgba(139, 92, 246, 0.1); border-radius: 0.25rem; color: #8b5cf6;';
+
+            let paramsText = '';
+            if (toolCall.parameters && Object.keys(toolCall.parameters).length > 0) {
+                paramsText = ` → ${JSON.stringify(toolCall.parameters)}`;
+            }
+
+            toolIndicator.innerHTML = `<span style="margin-right: 0.25rem;">🔧</span>${toolCall.name}${paramsText}`;
+            metaEl.appendChild(toolIndicator);
+        });
     }
     
     hideBackendModal() {
