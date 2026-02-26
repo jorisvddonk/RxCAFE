@@ -1,5 +1,5 @@
 /**
- * RXCAFE Core Business Logic
+ * ObservableCAFE Core Business Logic
  * 
  * Reactive stream-based chat processing with unidirectional data flow.
  * 

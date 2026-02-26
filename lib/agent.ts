@@ -1,5 +1,5 @@
 /**
- * RXCAFE Agent System
+ * ObservableCAFE Agent System
  * 
  * Agents are pipeline builders that receive inputStream and build RxJS pipelines
  * that emit to outputStream. They can be used interactively (on-demand) or

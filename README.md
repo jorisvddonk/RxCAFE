@@ -12,11 +12,12 @@ A reactive chat application built with the ObservableCAFE architecture pattern, 
   - **URL Hash Synchronization**: Active session is reflected in the URL for easy bookmarking and navigation.
   - Rename and delete sessions directly from the UI.
   - **Cross-Platform Synchronization**: Seamlessly switch between Web and Telegram.
-- **Modular Agent System**: 
+- **Modular Agent System**:
   - **Interactive Agents**: Created on-demand via the UI.
   - **Background Agents**: Persistent agents that start on server boot and can run scheduled tasks.
     - `rss-summarizer`: Fetches and summarizes RSS feeds (e.g., Hacker News) daily at 07:00.
     - `time-ticker`: Periodically outputs the current time.
+  - **Agent Factory**: An interactive agent that generates new agents from natural language descriptions using LLM code generation and automatic TypeScript validation.
   - **Declarative Pipelines**: Clean agent definitions using RxJS operators and higher-order evaluators.
   - **Custom Agent Paths**: Load agents from external directories via environment variables.
 - **Multi-modal Support**: Handle text and **binary chunks** seamlessly.

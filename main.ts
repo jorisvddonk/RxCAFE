@@ -1,5 +1,5 @@
 /**
- * RXCAFE Chat Application
+ * ObservableCAFE Chat Application
  * Main entry point - HTTP server with API and frontend
  * 
  * This file wires together:
