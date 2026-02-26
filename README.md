@@ -20,6 +20,9 @@ A reactive chat application built with the ObservableCAFE architecture pattern, 
   - **Agent Factory**: An interactive agent that generates new agents from natural language descriptions using LLM code generation and automatic TypeScript validation.
   - **Declarative Pipelines**: Clean agent definitions using RxJS operators and higher-order evaluators.
   - **Custom Agent Paths**: Load agents from external directories via environment variables.
+   - **Tool System**: Agents can call tools using `<|tool_call|>` syntax
+     - **Die Roller**: `rollDice` tool for rolling virtual dice (1d6, 2d10+3, etc.)
+     - **Tool Detection**: Auto-detects and executes tool calls in LLM responses
 - **Multi-modal Support**: Handle text and **binary chunks** seamlessly.
   - **Image Painter**: Generates and renders random pixel art images.
   - **Audio Generator**: Generates and plays back audio tones.

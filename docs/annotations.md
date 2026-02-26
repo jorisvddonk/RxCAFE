@@ -25,4 +25,5 @@ Annotations are key-value metadata attached to chunks. They follow a FQDN naming
 | [system](./annotations/system.md) | System prompts/responses |
 | [telegram](./annotations/telegram.md) | Telegram chat ID |
 | [time-ticker](./annotations/time-ticker.md) | Time ticker flag |
+| [tool](./annotations/tool.md) | Tool call detection and execution |
 | [web](./annotations/web.md) | Web content source |
