@@ -15,22 +15,39 @@ export const defaultAgent: AgentDefinition = {
   configSchema: {
     type: 'object',
     properties: {
-      backend: { type: 'string', description: 'LLM backend (kobold or ollama)' },
+      backend: { type: 'string', description: 'LLM backend (kobold or ollama)', default: 'ollama' },
       model: { type: 'string', description: 'Model name' },
       systemPrompt: { type: 'string', description: 'System prompt' },
       llmParams: {
         type: 'object',
         properties: {
-          temperature: { type: 'number' },
-          maxTokens: { type: 'number' },
-          topP: { type: 'number' },
-          topK: { type: 'number' },
-          repeatPenalty: { type: 'number' },
-          stop: { type: 'array', items: { type: 'string' } },
+          temperature: { type: 'number', default: 0.7 },
+          maxTokens: { type: 'number', default: 500 },
+          topP: { type: 'number', default: 0.9 },
+          topK: { type: 'number', default: 40 },
+          repeatPenalty: { type: 'number', default: 1.1 },
+          stop: { type: 'array', items: { type: 'string' }, default: [] },
           seed: { type: 'number' },
           maxContextLength: { type: 'number' },
           numCtx: { type: 'number' },
+        },
+        default: {
+          temperature: 0.7,
+          maxTokens: 500,
+          topP: 0.9,
+          topK: 40,
+          repeatPenalty: 1.1
         }
+      }
+    },
+    default: {
+      backend: 'ollama',
+      llmParams: {
+        temperature: 0.7,
+        maxTokens: 500,
+        topP: 0.9,
+        topK: 40,
+        repeatPenalty: 1.1
       }
     },
     required: ['backend', 'model']

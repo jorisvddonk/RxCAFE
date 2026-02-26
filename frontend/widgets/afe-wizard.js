@@ -377,6 +377,18 @@ export class AfeWizard extends LitElement {
     this.currentStep = 1;
   }
 
+  updated(changedProperties) {
+    console.log('[WIZARD] updated called, agents:', this.agents?.length, 'selectedAgent:', this.selectedAgent?.name);
+    // Auto-select default agent when agents are set
+    if (changedProperties.has('agents') && this.agents && this.agents.length > 0 && !this.selectedAgent) {
+      const defaultAgent = this.agents.find(a => a.name === 'default') || this.agents[0];
+      console.log('[WIZARD] auto-selecting agent:', defaultAgent?.name);
+      if (defaultAgent) {
+        this._handleAgentSelect(defaultAgent);
+      }
+    }
+  }
+
   _getAgentRequiresLLM(agent) {
     console.log('[WIZARD] _getAgentRequiresLLM called with:', agent?.name);
     if (!agent || !agent.configSchema) {
@@ -494,27 +506,30 @@ export class AfeWizard extends LitElement {
   }
 
   _handleAgentSelect(agent) {
+    console.log('[WIZARD] _handleAgentSelect called for:', agent?.name);
     this.selectedAgent = agent;
     
     // Initialize formData with defaults from schema
     const schema = agent.configSchema;
+    console.log('[WIZARD] schema.default:', schema?.default);
     let formData = {};
     
     // Apply top-level defaults
     if (schema.default) {
       formData = { ...schema.default };
+      console.log('[WIZARD] applied schema.default, formData:', formData);
     }
     
     // If agent needs LLM and has backend property, set default
     if (this._getAgentRequiresLLM(agent)) {
       const props = this._getSchemaProperties(agent);
       
-      // Set backend default if not already set
-      if (props.backend && props.backend.default && !formData.backend) {
-        formData = { ...formData, backend: props.backend.default };
-      } else if (props.backend && !formData.backend) {
-        formData = { ...formData, backend: 'kobold' };
-      }
+        // Set backend default if not already set (default to ollama)
+        if (props.backend && props.backend.default) {
+          formData = { ...formData, backend: props.backend.default };
+        } else if (props.backend && !formData.backend) {
+          formData = { ...formData, backend: 'ollama' };
+        }
       
       // Load models for default backend
       if (formData.backend === 'ollama') {
@@ -582,8 +597,8 @@ export class AfeWizard extends LitElement {
         console.log('[WIZARD] Step 1 - formData.backend before:', this.formData.backend);
         
         if (props.backend && !this.formData.backend) {
-          // Set default backend (use kobold as default if available)
-          const defaultBackend = 'kobold';
+          // Set default backend (default to ollama)
+          const defaultBackend = 'ollama';
           this.formData = { ...this.formData, backend: defaultBackend };
           console.log('[WIZARD] Step 1 - set formData.backend to:', defaultBackend);
           
