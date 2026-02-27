@@ -11,6 +11,7 @@ import { EMPTY, filter, map, mergeMap, catchError, tap } from '../lib/stream.js'
 import { Database } from '../lib/database.js';
 import { getSession, listActiveSessions, deleteSession } from '../core.js';
 import { connectedAgentStore } from '../lib/connected-agents.js';
+import { reloadAgents } from '../lib/agent-loader.js';
 
 const TRUST_DB_PATH = process.env.TRUST_DB_PATH || './rxcafe-trust.db';
 
@@ -47,6 +48,7 @@ export const systemAgent: AgentDefinition = {
   name: 'system',
   description: 'Background agent for administrative operations. API-only access.',
   startInBackground: true,
+  allowsReload: false,  // System agent maintains state - reload would disrupt admin operations
   configSchema: {
     type: 'object',
     properties: {},
@@ -127,6 +129,9 @@ export const systemAgent: AgentDefinition = {
             case '!status':
               return handleStatus(trustDb);
             
+            case '!reload':
+              return await handleReload(args);
+            
             default:
               return [createErrorChunk(`Unknown command: ${command}\n\nType !help for available commands.`)];
           }
@@ -186,6 +191,7 @@ function handleHelp(): Chunk[] {
     '',
     'System:',
     '  !status                    Show system health summary',
+    '  !reload [agent1 agent2...] Reload all agents or specific ones',
     '  !help                      Show this help message',
   ];
   
@@ -469,6 +475,44 @@ function handleStatus(trustDb: Database): Chunk[] {
   }
   
   return [createResponseChunk(lines.join('\n'))];
+}
+
+async function handleReload(args: string[]): Promise<Chunk[]> {
+  const specificAgents = args.length > 0 ? args : undefined;
+  const result = await reloadAgents(specificAgents);
+  
+  const lines = [
+    '🔄 Agent Reload Complete',
+    '',
+  ];
+  
+  if (specificAgents) {
+    lines.push(`**Reloading specific agents:** ${specificAgents.join(', ')}`);
+    lines.push('');
+  }
+  
+  lines.push(`**Reloaded (${result.loaded.length}):**`);
+  lines.push(result.loaded.length > 0 ? result.loaded.join(', ') : '  (none)');
+  lines.push('');
+  
+  if (result.changed.length > 0) {
+    lines.push(`**Source changed:**`);
+    lines.push(result.changed.join(', '));
+    lines.push('');
+  }
+  
+  if (result.newAgents.length > 0) {
+    lines.push(`**New agents loaded:**`);
+    lines.push(result.newAgents.join(', '));
+    lines.push('');
+  }
+  
+  if (result.skipped.length > 0) {
+    lines.push(`**Skipped (denied reload, has state):**`);
+    lines.push(result.skipped.join(', '));
+  }
+  
+  return [createResponseChunk(lines.join('\n'), true)];
 }
 
 export default systemAgent;

@@ -29,6 +29,7 @@ export interface AgentDefinition {
   name: string;
   description?: string;
   startInBackground?: boolean;
+  allowsReload?: boolean;  // Defaults to true; set to false to prevent reloads (for stateful agents)
   configSchema?: Record<string, any>;  // JSON Schema draft-07
   
   initialize(session: AgentSessionContext): void | Promise<void>;

@@ -46,6 +46,7 @@ import {
   listActiveSessions,
   deleteSession,
   setSessionStore,
+  setCoreConfig,
   shutdown,
   type CoreConfig,
   type Session,
@@ -297,6 +298,8 @@ if (args.includes('--list-telegram-users')) {
 // =============================================================================
 
 const config: CoreConfig = getDefaultConfig();
+setCoreConfig(config);
+
 const PORT = parseInt(process.env.PORT || '3000');
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const TELEGRAM_WEBHOOK_URL = process.env.TELEGRAM_WEBHOOK_URL;

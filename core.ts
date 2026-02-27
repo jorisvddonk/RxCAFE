@@ -144,6 +144,15 @@ export interface Session {
 
 const sessions = new Map<string, Session>();
 let sessionStore: SessionStore | null = null;
+let coreConfig: CoreConfig | null = null;
+
+export function setCoreConfig(config: CoreConfig): void {
+  coreConfig = config;
+}
+
+export function getCoreConfig(): CoreConfig | null {
+  return coreConfig;
+}
 
 export function setSessionStore(store: SessionStore): void {
   sessionStore = store;
@@ -386,6 +395,134 @@ export async function deleteSession(sessionId: string): Promise<boolean> {
   }
   
   return sessions.delete(sessionId);
+}
+
+export async function reloadSessionAgent(sessionId: string, config: CoreConfig): Promise<boolean> {
+  const session = sessions.get(sessionId);
+  if (!session) return false;
+  
+  const newAgent = getAgent(session.agentName);
+  if (!newAgent) {
+    console.error(`[Core] Cannot reload session ${sessionId}: agent ${session.agentName} not found`);
+    return false;
+  }
+  
+  // Unsubscribe from old pipeline
+  if (session.pipelineSubscription) {
+    session.pipelineSubscription.unsubscribe();
+  }
+  
+  // Call destroy on old agent if it exists
+  try {
+    const oldAgent = getAgent(session.agentName);
+    if (oldAgent?.destroy && session._agentContext) {
+      await oldAgent.destroy(session._agentContext);
+    }
+  } catch (err) {
+    console.warn(`[Core] Error calling destroy on old agent for session ${sessionId}:`, err);
+  }
+  
+  // Recreate streams to avoid stale data
+  session.inputStream = new Subject<Chunk>();
+  session.outputStream = new Subject<Chunk>();
+  session.errorStream = new Subject<Error>();
+  
+  // Rebuild agent context with new streams
+  session._agentContext = {
+    id: session.id,
+    agentName: session.agentName,
+    isBackground: session.isBackground,
+    inputStream: session.inputStream,
+    outputStream: session.outputStream,
+    errorStream: session.errorStream,
+    history: session.history,
+    config,
+    sessionConfig: {},
+    systemPrompt: session.systemPrompt,
+    trustedChunks: session.trustedChunks,
+    get callbacks() { return session.callbacks; },
+    set callbacks(val) { session.callbacks = val; },
+    
+    createEvaluator: (backendOrParams?: LLMBackend | LLMParams, model?: string, params?: LLMParams): AgentEvaluator => {
+      let b: LLMBackend;
+      let m: string | undefined;
+      let p: LLMParams | undefined;
+
+      if (typeof backendOrParams === 'object') {
+        b = session.runtimeConfig.backend || config.backend;
+        m = session.runtimeConfig.model;
+        p = { ...session.runtimeConfig.llmParams, ...backendOrParams };
+      } else {
+        b = backendOrParams || session.runtimeConfig.backend || config.backend;
+        m = model || session.runtimeConfig.model;
+        p = { ...session.runtimeConfig.llmParams, ...params };
+      }
+
+      const evaluator = createEvaluator(b, config, m, p);
+      return {
+        evaluateChunk: evaluator.evaluateChunk,
+        abort: evaluator.abort,
+      };
+    },
+    
+    schedule: (cronExpr: string, callback: () => void | Promise<void>): (() => void) => {
+      return schedule(cronExpr, callback);
+    },
+    
+    persistState: async (): Promise<void> => {
+      if (sessionStore) {
+        await sessionStore.saveSession(session.id, session.agentName, session.isBackground, {});
+        await sessionStore.saveHistory(session.id, session.history);
+      }
+    },
+    
+    loadState: async (): Promise<void> => {
+      // Already loaded, no-op
+    },
+  };
+  
+  // Re-subscribe to outputStream for history tracking
+  session.outputStream.subscribe({
+    next: (chunk) => {
+      if (chunk.annotations && chunk.annotations['session.name']) {
+        session.displayName = String(chunk.annotations['session.name']);
+      }
+      if (chunk.contentType === 'null' && chunk.annotations['config.type'] === 'runtime') {
+        session.runtimeConfig = extractRuntimeConfigFromChunk(chunk);
+        session.backend = session.runtimeConfig.backend || config.backend;
+        session.model = session.runtimeConfig.model;
+        session.systemPrompt = session.runtimeConfig.systemPrompt || null;
+        session.llmEvaluator = createEvaluator(session.backend, config, session.model, session.runtimeConfig.llmParams);
+      }
+      const existingIndex = session.history.findIndex(c => c.id === chunk.id);
+      if (existingIndex !== -1) {
+        session.history[existingIndex] = chunk;
+      } else {
+        session.history.push(chunk);
+      }
+    }
+  });
+  
+  // Pass user messages to outputStream for history
+  session.inputStream.subscribe({
+    next: (chunk) => {
+      const role = chunk.annotations['chat.role'];
+      const isWeb = chunk.producer === 'com.rxcafe.web-fetch' || chunk.annotations['web.source-url'];
+      const isSessionName = !!chunk.annotations['session.name'];
+      const isRuntimeConfig = chunk.contentType === 'null' && chunk.annotations['config.type'] === 'runtime';
+      
+      if ((chunk.contentType === 'text' || chunk.contentType === 'null') && 
+          (role === 'user' || role === 'system' || isWeb || isSessionName || isRuntimeConfig)) {
+        session.outputStream.next(chunk);
+      }
+    }
+  });
+  
+  // Initialize with new agent
+  await newAgent.initialize(session._agentContext);
+  
+  console.log(`[Core] Reloaded agent for session ${sessionId} (${session.agentName})`);
+  return true;
 }
 
 export function listSessions(): string[] {

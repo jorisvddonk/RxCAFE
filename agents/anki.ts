@@ -239,6 +239,7 @@ async function emitCardChunks(
 export const ankiAgent: AgentDefinition = {
   name: 'anki',
   description: 'Study flashcards with spaced repetition',
+  allowsReload: false,  // Agent maintains flashcard state - reload would lose progress
   configSchema: {
     type: 'object',
     properties: {},
