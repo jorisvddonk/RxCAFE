@@ -48,8 +48,6 @@ export const audioGeneratorAgent: AgentDefinition = {
       
       session.outputStream.next(audioChunk);
 
-      await session.persistState();
-
       if (session.callbacks?.onFinish) {
         session.callbacks.onFinish();
       }

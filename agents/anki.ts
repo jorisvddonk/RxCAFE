@@ -635,9 +635,6 @@ Current session:
     
     session.pipelineSubscription?.unsubscribe();
   },
-  
-  async persistState() {
-  }
 };
 
 export default ankiAgent;

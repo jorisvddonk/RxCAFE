@@ -5,6 +5,7 @@ export const timeTickerAgent: AgentDefinition = {
   name: 'time-ticker',
   description: 'Background agent that outputs the current time every 2 seconds',
   startInBackground: true,
+  persistsState: false,
   configSchema: {
     type: 'object',
     properties: {},

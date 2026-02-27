@@ -59,8 +59,6 @@ export const imagePainterAgent: AgentDefinition = {
       
       session.outputStream.next(imageChunk);
       
-      await session.persistState();
-
       // Notify the frontend that generation is complete
       if (session.callbacks?.onFinish) {
         session.callbacks.onFinish();

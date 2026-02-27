@@ -138,11 +138,13 @@ export interface Session {
   displayName?: string;
   runtimeConfig: RuntimeSessionConfig;
   pipelineSubscription?: { unsubscribe: () => void };
+  persistsState?: boolean;
 
   _agentContext?: AgentSessionContext;
 }
 
 const sessions = new Map<string, Session>();
+const persistDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
 let sessionStore: SessionStore | null = null;
 let coreConfig: CoreConfig | null = null;
 
@@ -207,6 +209,7 @@ export async function createSession(
     callbacks: null,
     systemPrompt: runtimeConfig.systemPrompt || null,
     runtimeConfig,
+    persistsState: agent.persistsState !== false,
   };
   
   const agentContext: AgentSessionContext = {
@@ -347,6 +350,21 @@ export async function createSession(
       } else {
         //console.log(`[Core] Adding new history chunk: ${chunk.id} (session ${session.id})`);
         session.history.push(chunk);
+        
+        // Debounced auto-persistence
+        if (sessionStore && session.persistsState !== false) {
+          if (persistDebounceTimers.has(id)) {
+            clearTimeout(persistDebounceTimers.get(id));
+          }
+          persistDebounceTimers.set(id, setTimeout(async () => {
+            try {
+              await sessionStore!.saveHistory(id, session.history);
+              await sessionStore!.saveSession(id, agentId, isBackground, {});
+            } catch (err) {
+              console.error(`[Core] Failed to persist session ${id}:`, err);
+            }
+          }, 500));
+        }
       }
     }
   });
@@ -384,6 +402,11 @@ export async function deleteSession(sessionId: string): Promise<boolean> {
   const session = sessions.get(sessionId);
   if (session?.pipelineSubscription) {
     session.pipelineSubscription.unsubscribe();
+  }
+  
+  if (persistDebounceTimers.has(sessionId)) {
+    clearTimeout(persistDebounceTimers.get(sessionId));
+    persistDebounceTimers.delete(sessionId);
   }
   
   if (sessionStore) {

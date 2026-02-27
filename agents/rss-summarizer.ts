@@ -46,8 +46,6 @@ export const rssSummarizerAgent: AgentDefinition = {
           }
         ));
       }
-      
-      await session.persistState();
     };
 
     // 1. Schedule daily task (07:00)

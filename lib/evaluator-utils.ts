@@ -76,7 +76,6 @@ export function processWithEvaluator(
           session.callbacks.onFinish();
         }
         
-        await session.persistState();
         subscriber.complete();
       } catch (error) {
         subscriber.next(createNullChunk('com.rxcafe.error', {
