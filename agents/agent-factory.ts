@@ -90,16 +90,13 @@ export const {{AGENT_NAME}}: AgentDefinition = {
       }),
       mergeMap(async (chunk: Chunk) => {
         // Agent implementation goes here
+        // IMPORTANT: Call session.callbacks?.onFinish() when done generating response
 {{IMPLEMENTATION}}
       }),
       catchError((err: Error) => { session.errorStream.next(err); return EMPTY; })
     ).subscribe({
       next: (c: Chunk) => {
         session.outputStream.next(c);
-        // IMPORTANT: Call onFinish when done generating response
-        if (session.callbacks?.onFinish) {
-          session.callbacks.onFinish();
-        }
       }
     });
 
@@ -157,16 +154,16 @@ export const myAgent: AgentDefinition = {
       mergeMap(async (chunk: Chunk) => {
         // Your agent logic here
         const response = createTextChunk('Hello!', 'my-agent', { 'chat.role': 'assistant', 'parsers.markdown.enabled': true });
+        // IMPORTANT: Call session.callbacks?.onFinish() when done generating response
+        if (session.callbacks?.onFinish) {
+          session.callbacks.onFinish();
+        }
         return response;
       }),
       catchError((err: Error) => { session.errorStream.next(err); return EMPTY; })
     ).subscribe({
       next: (c: Chunk) => {
         session.outputStream.next(c);
-        // IMPORTANT: Call onFinish when done generating response
-        if (session.callbacks?.onFinish) {
-          session.callbacks.onFinish();
-        }
       }
     });
 
