@@ -27,7 +27,7 @@ This makes agents remarkably concise and readable. A typical agent is just a doz
 ```typescript
 session.inputStream.pipe(
   filter(c => c.annotations['chat.role'] === 'user'),
-  mergeMap(chunk => processWithEvaluator(chunk, session.createEvaluator())),
+  mergeMap(chunk => completeTurnWithLLM(chunk, session.createLLMChunkEvaluator())),
   catchError(err => { session.errorStream.next(err); return EMPTY; })
 ).subscribe({ next: c => session.outputStream.next(c) });
 ```

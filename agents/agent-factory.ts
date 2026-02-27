@@ -119,7 +119,7 @@ Key concepts:
 2. **outputStream** - Subject<Chunk> where responses are emitted  
 3. **errorStream** - Subject<Error> for error handling
 4. **session.schedule(cron, callback)** - For background agents to schedule tasks
-5. **session.createEvaluator()** - Creates an LLM evaluator
+5. **session.createLLMChunkEvaluator()** - Creates an LLM evaluator
 
 ## Required Code Structure
 
@@ -387,7 +387,7 @@ async function generateWithRetry(
   let code = '';
   let errors: string[] = [];
   
-  const evaluator = session.createEvaluator({ temperature: 0.2, maxTokens: 4000 });
+  const evaluator = session.createLLMChunkEvaluator({ temperature: 0.2, maxTokens: 4000 });
   
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     const result = await generateAgentCode(
@@ -698,7 +698,7 @@ ${existingCode}
 
 Provide the complete updated TypeScript code.`;
           
-          const evaluator = session.createEvaluator({ temperature: 0.2, maxTokens: 4000 });
+  const evaluator = session.createLLMChunkEvaluator({ temperature: 0.2, maxTokens: 4000 });
           const tempChunk = createTextChunk(editPrompt, 'agent-factory', {
             'llm.full-prompt': true,
             'chat.role': 'user'

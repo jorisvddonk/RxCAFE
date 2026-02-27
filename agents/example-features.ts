@@ -5,7 +5,7 @@ import { EMPTY, filter, mergeMap, catchError } from '../lib/stream.js';
 import { analyzeSentiment } from '../evaluators/sentiment.js';
 import { detectToolCalls } from '../evaluators/tool-call-detector.js';
 import { executeTools, TOOLS_SYSTEM_PROMPT } from '../evaluators/tool-executor.js';
-import { processWithEvaluator } from '../lib/evaluator-utils.js';
+import { completeTurnWithLLM } from '../lib/evaluator-utils.js';
 
 /**
  * ExampleFeaturesAgent
@@ -41,7 +41,7 @@ export const exampleFeaturesAgent: AgentDefinition = {
        mergeMap(detectToolCalls()),
        
        // Step 3: Generate assistant response (fresh evaluator per message)
-       mergeMap(chunk => processWithEvaluator(chunk, session.createEvaluator(), session)),
+        mergeMap(chunk => completeTurnWithLLM(chunk, session.createLLMChunkEvaluator(), session)),
        
        // Step 4: Detect tool calls in assistant responses
        mergeMap(detectToolCalls()),

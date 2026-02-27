@@ -51,8 +51,8 @@ export interface AgentSessionContext {
   sessionConfig: SessionConfig;
   systemPrompt: string | null;
   
-  createEvaluator(params?: LLMParams): AgentEvaluator;
-  createEvaluator(backend: LLMBackend, model?: string, params?: LLMParams): AgentEvaluator;
+  createLLMChunkEvaluator(params?: LLMParams): AgentEvaluator;
+  createLLMChunkEvaluator(backend: LLMBackend, model?: string, params?: LLMParams): AgentEvaluator;
   
   schedule(cronExpr: string, callback: () => void | Promise<void>): () => void;
   

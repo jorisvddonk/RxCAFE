@@ -123,10 +123,10 @@ Persistent state (like the "Name" of a session) should be derived from the `outp
 
 ### 5.1 Ergonomic Evaluator Creation
 
-Systems should provide a `createEvaluator` utility that allows for easy overrides:
+Systems should provide a `createLLMChunkEvaluator` utility that allows for easy overrides:
 ```javascript
 // Inherit session defaults but force deterministic output
-const analyzer = session.createEvaluator({ temperature: 0, maxTokens: 100 });
+const analyzer = session.createLLMChunkEvaluator({ temperature: 0, maxTokens: 100 });
 ```
 
 ### 5.2 Error Boundaries

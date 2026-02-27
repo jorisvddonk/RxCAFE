@@ -58,7 +58,7 @@ function cleanXmlEntities(str: string): string {
  * Higher-order function to summarize RSS feeds.
  */
 export function summarizeRss(session: AgentSessionContext) {
-  const evaluator = session.createEvaluator({ 
+  const evaluator = session.createLLMChunkEvaluator({ 
     temperature: 0.5, 
     maxTokens: 1000 
   });

@@ -7,7 +7,7 @@ import type { AgentDefinition, AgentSessionContext } from '../lib/agent.js';
 import type { Chunk } from '../lib/chunk.js';
 import { createTextChunk, annotateChunk } from '../lib/chunk.js';
 import { EMPTY, filter, map, mergeMap, catchError } from '../lib/stream.js';
-import { processWithEvaluator } from '../lib/evaluator-utils.js';
+import { completeTurnWithLLM } from '../lib/evaluator-utils.js';
 
 export const newsReporterAgent: AgentDefinition = {
   name: 'news-reporter',
@@ -34,7 +34,7 @@ export const newsReporterAgent: AgentDefinition = {
       mergeMap((chunk: Chunk) => {
         if (chunk.annotations['chat.role'] !== 'user') return [chunk];
         // Create fresh evaluator per message to pick up runtime config changes
-        return processWithEvaluator(chunk, session.createEvaluator({ temperature: 0.7, maxTokens: 200 }), session);
+        return completeTurnWithLLM(chunk, session.createLLMChunkEvaluator({ temperature: 0.7, maxTokens: 200 }), session);
       }),
       catchError((error: Error) => {
         session.errorStream.next(error);

@@ -14,7 +14,7 @@ export interface SentimentAnalysis {
  */
 export function analyzeSentiment(session: AgentSessionContext) {
   // Encapsulate the specialized evaluator logic inside the helper
-  const evaluator = session.createEvaluator({ 
+  const evaluator = session.createLLMChunkEvaluator({ 
     temperature: 0, 
     maxTokens: 150 
   });

@@ -8,7 +8,7 @@ import { buildConversationContext } from '../core.js';
  * Standard utility to process a chunk with an LLM evaluator and return a streaming response.
  * Handles context building, null chunk generation signals, token streaming, and history persistence.
  */
-export function processWithEvaluator(
+export function completeTurnWithLLM(
   chunk: Chunk,
   evaluator: AgentEvaluator,
   session: AgentSessionContext

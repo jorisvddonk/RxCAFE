@@ -93,7 +93,7 @@ export interface LLMEvaluator {
   abort(): Promise<void>;
 }
 
-export function createEvaluator(
+export function createLLMChunkEvaluator(
   backend: LLMBackend, 
   config: CoreConfig,
   model?: string,
@@ -200,7 +200,7 @@ export async function createSession(
     outputStream,
     errorStream,
     history: [],
-    llmEvaluator: createEvaluator(backend, config, model, runtimeConfig.llmParams),
+    llmEvaluator: createLLMChunkEvaluator(backend, config, model, runtimeConfig.llmParams),
     backend,
     model,
     abortController: null,
@@ -226,24 +226,24 @@ export async function createSession(
     get callbacks() { return session.callbacks; },
     set callbacks(val) { session.callbacks = val; },
     
-    createEvaluator: (backendOrParams?: LLMBackend | LLMParams, model?: string, params?: LLMParams): AgentEvaluator => {
+    createLLMChunkEvaluator: (backendOrParams?: LLMBackend | LLMParams, model?: string, params?: LLMParams): AgentEvaluator => {
       let b: LLMBackend;
       let m: string | undefined;
       let p: LLMParams | undefined;
 
       if (typeof backendOrParams === 'object') {
-        // One-liner: session.createEvaluator({ temperature: 0 })
+        // One-liner: session.createLLMChunkEvaluator({ temperature: 0 })
         b = session.runtimeConfig.backend || config.backend;
         m = session.runtimeConfig.model;
         p = { ...session.runtimeConfig.llmParams, ...backendOrParams };
       } else {
-        // Standard: session.createEvaluator('ollama', 'llama3', { ... })
+        // Standard: session.createLLMChunkEvaluator('ollama', 'llama3', { ... })
         b = backendOrParams || session.runtimeConfig.backend || config.backend;
         m = model || session.runtimeConfig.model;
         p = { ...session.runtimeConfig.llmParams, ...params };
       }
 
-      const evaluator = createEvaluator(b, config, m, p);
+      const evaluator = createLLMChunkEvaluator(b, config, m, p);
       return {
         evaluateChunk: evaluator.evaluateChunk,
         abort: evaluator.abort,
@@ -297,7 +297,7 @@ export async function createSession(
         }
         
         // Always recreate evaluator on load
-        session.llmEvaluator = createEvaluator(
+        session.llmEvaluator = createLLMChunkEvaluator(
           session.backend,
           config,
           session.model,
@@ -341,7 +341,7 @@ export async function createSession(
           if (session.runtimeConfig.model) session.model = session.runtimeConfig.model;
           if (session.runtimeConfig.systemPrompt) session.systemPrompt = session.runtimeConfig.systemPrompt;
           
-          session.llmEvaluator = createEvaluator(
+          session.llmEvaluator = createLLMChunkEvaluator(
             session.backend,
             config,
             session.model,
@@ -449,7 +449,7 @@ export async function reloadSessionAgent(sessionId: string, config: CoreConfig):
     get callbacks() { return session.callbacks; },
     set callbacks(val) { session.callbacks = val; },
     
-    createEvaluator: (backendOrParams?: LLMBackend | LLMParams, model?: string, params?: LLMParams): AgentEvaluator => {
+    createLLMChunkEvaluator: (backendOrParams?: LLMBackend | LLMParams, model?: string, params?: LLMParams): AgentEvaluator => {
       let b: LLMBackend;
       let m: string | undefined;
       let p: LLMParams | undefined;
@@ -464,7 +464,7 @@ export async function reloadSessionAgent(sessionId: string, config: CoreConfig):
         p = { ...session.runtimeConfig.llmParams, ...params };
       }
 
-      const evaluator = createEvaluator(b, config, m, p);
+      const evaluator = createLLMChunkEvaluator(b, config, m, p);
       return {
         evaluateChunk: evaluator.evaluateChunk,
         abort: evaluator.abort,
