@@ -48,20 +48,7 @@ Background agents start automatically when the server boots. They are useful for
 - Long-running computations
 - Event-driven processing
 
-Example background agent in `agents/news-reporter.ts`:
-
-```typescript
-export const newsReporter: AgentDefinition = {
-  name: 'news-reporter',
-  startInBackground: true,
-  initialize(session) {
-    // Schedule daily news fetch at 7 AM
-    session.schedule('0 7 * * *', () => {
-      // Fetch and process news...
-    });
-  }
-};
-```
+Example background agent in `agents/rss-summarizer.ts`.
 
 ## Agent Reloading
 

@@ -19,7 +19,6 @@ Annotations are key-value metadata attached to chunks. They follow a FQDN naming
 | [llm](./annotations/llm.md) | Streaming and backend info |
 | [parsers](./annotations/parsers.md) | Markdown parsing |
 | [rss](./annotations/rss.md) | RSS feed source |
-| [scheduled](./annotations/scheduled.md) | Scheduled task flag |
 | [security](./annotations/security.md) | Trust levels |
 | [session](./annotations/session.md) | Session naming |
 | [system](./annotations/system.md) | System prompts/responses |
