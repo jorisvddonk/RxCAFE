@@ -63,6 +63,31 @@ export const newsReporter: AgentDefinition = {
 };
 ```
 
+## Agent Reloading
+
+Agents can be reloaded at runtime using the System agent (`!reload` command). This allows you to update agent code without restarting the server.
+
+### allowsReload
+
+By default, agents can be reloaded. To prevent reloading (useful for agents with in-memory state):
+
+```typescript
+export const myStatefulAgent: AgentDefinition = {
+  name: 'my-stateful-agent',
+  allowsReload: false,  // Existing sessions keep old code, new sessions get updated code
+  async initialize(session) {
+    // Agent maintains state in memory...
+  }
+};
+```
+
+When `allowsReload: false`:
+- Existing sessions continue using the old agent code (preserving state)
+- New sessions use the updated code
+- Sessions are NOT re-initialized with new code
+
+This is ideal for agents like `anki` that maintain flashcard progress or other in-memory state.
+
 ## See Also
 
 - [Connected Agents](./connected-agents.md) - External agents connecting via API
