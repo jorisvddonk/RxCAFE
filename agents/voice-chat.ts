@@ -10,6 +10,7 @@ import { annotateChunk, createTextChunk } from '../lib/chunk.js';
 import { EMPTY, filter, map, mergeMap, catchError } from '../lib/stream.js';
 import { completeTurnWithLLM } from '../lib/evaluator-utils.js';
 import { transcribeToUserChunk } from '../evaluators/handy-transcriber.js';
+import { convertToMp3 } from '../evaluators/audio-converter.js';
 
 export const voiceChatAgent: AgentDefinition = {
   name: 'voice-chat',
@@ -75,9 +76,26 @@ export const voiceChatAgent: AgentDefinition = {
     const handyConfig = session.sessionConfig.handyConfig || { baseUrl: 'http://localhost:5500' };
     const transcriber = transcribeToUserChunk(session, handyConfig);
 
+    // Create audio converter for MP3 conversion (Handy API requires MP3)
+    const audioConverter = convertToMp3({
+      targetFormat: 'mp3',
+      targetMimeType: 'audio/mpeg'
+    });
+
     const sub = session.inputStream.pipe(
       // Handle both text and binary (audio) chunks
       filter((chunk: Chunk) => chunk.contentType === 'text' || chunk.contentType === 'binary'),
+      
+      // Convert audio chunks to MP3 format before transcription
+      mergeMap((chunk: Chunk) => {
+        if (chunk.contentType === 'binary') {
+          const binaryContent = chunk.content as { data: Uint8Array; mimeType: string };
+          if (binaryContent.mimeType?.startsWith('audio/')) {
+            return audioConverter(chunk);
+          }
+        }
+        return [chunk];
+      }),
       
       // If it's an audio chunk, transcribe it to a user text chunk
       // If it's already text, pass it through
