@@ -656,7 +656,7 @@ class ChatApp implements Component, Focusable {
     lines.push(...this.header.render(width));
     lines.push("");
     lines.push(chalk.bold.cyan(title));
-    lines.push(chalk.gray("Use arrow keys to navigate, Enter to select, Escape to go back"));
+    lines.push(chalk.gray("Use arrow keys to navigate, Enter to select, d to delete, Escape to go back"));
     lines.push("");
     
     const listLines = this.sessionsList.render(width - 2);
@@ -671,11 +671,29 @@ class ChatApp implements Component, Focusable {
     if (this.mode === 'sessions' || this.mode === 'new-session') {
       if (matchesKey(data, Key.escape)) {
         this.setMode('chat');
+      } else if (data === 'd' || data === 'D') {
+        const selectedItem = this.sessionsList.getSelectedItem();
+        if (selectedItem && selectedItem.value) {
+          this.deleteSessionById(selectedItem.value);
+        }
       } else {
         this.sessionsList.handleInput(data);
       }
     } else {
       this.input.handleInput(data);
+    }
+  }
+  
+  private async deleteSessionById(sessionId: string) {
+    try {
+      await this.api(`/api/session/${sessionId}`, { method: 'DELETE' });
+      this.knownSessions = this.knownSessions.filter(s => s.id !== sessionId);
+      this.addMessage('tui', `Deleted session: ${sessionId.slice(0, 12)}...`);
+      this.updateSessionsList();
+      if (this.sessionsList.invalidate) this.sessionsList.invalidate();
+      this.tui.requestRender();
+    } catch (err: any) {
+      this.addMessage('tui', `Failed to delete: ${err.message}`);
     }
   }
 }
