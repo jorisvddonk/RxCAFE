@@ -319,8 +319,9 @@ export async function createSession(
         const isWeb = chunk.producer === 'com.rxcafe.web-fetch' || chunk.annotations['web.source-url'];
         const isSessionName = !!chunk.annotations['session.name'];
         const isRuntimeConfig = chunk.contentType === 'null' && chunk.annotations['config.type'] === 'runtime';
-        return (chunk.contentType === 'text' || chunk.contentType === 'null') && 
-               (role === 'user' || role === 'system' || isWeb || isSessionName || isRuntimeConfig);
+        const isBinary = chunk.contentType === 'binary'; // Allow all binary chunks
+        return isBinary || ((chunk.contentType === 'text' || chunk.contentType === 'null') && 
+               (role === 'user' || role === 'system' || isWeb || isSessionName || isRuntimeConfig));
       }),
       tap(chunk => outputStream.next(chunk))
     ),
