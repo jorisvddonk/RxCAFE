@@ -4,14 +4,12 @@ import { AgentSessionContext } from '../lib/agent.js';
 
 export interface HandyTranscriptionConfig {
   baseUrl?: string;
-  port?: number;
   responseFormat?: 'json' | 'verbose_json';
   timestampGranularities?: string[];
 }
 
 const DEFAULT_CONFIG: HandyTranscriptionConfig = {
-  baseUrl: 'http://localhost',
-  port: 5500,
+  baseUrl: 'http://localhost:5500',
   responseFormat: 'json',
   timestampGranularities: []
 };
@@ -28,7 +26,7 @@ const DEFAULT_CONFIG: HandyTranscriptionConfig = {
  */
 export function transcribeAudio(session: AgentSessionContext, config: HandyTranscriptionConfig = {}) {
   const mergedConfig = { ...DEFAULT_CONFIG, ...config };
-  const apiUrl = `${mergedConfig.baseUrl}:${mergedConfig.port}/v1/audio/transcriptions`;
+  const apiUrl = `${mergedConfig.baseUrl}/v1/audio/transcriptions`;
 
   return (chunk: Chunk): Observable<Chunk> => {
     return new Observable(subscriber => {
