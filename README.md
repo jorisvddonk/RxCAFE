@@ -116,6 +116,35 @@ This app implements the ObservableCAFE pattern:
 5. **Open the app**:
    Navigate to `http://localhost:3000`
 
+## Terminal UI (TUI)
+
+A terminal-based interface is also available for command-line chat:
+
+```bash
+# Set token (or use --token flag)
+export RXCAFE_TOKEN=your-token
+
+# Run the TUI
+bun run tui
+```
+
+### Options
+
+- `--url <url>` - Server URL (default: `http://localhost:3000`)
+- `--token <token>` - API token (can also use `RXCAFE_TOKEN` env var)
+
+### Commands
+
+- `/help` - Show available commands
+- `/sessions` - Switch between sessions
+- `/new` - Create new session
+- `/clear` - Clear messages
+- `/rename <name>` - Rename current session
+- `/delete` - Delete current session
+- `/system <prompt>` - Set system prompt
+- `/quit` or `/exit` - Exit
+- `//<cmd>` - Forward command to agent (e.g., `//help` sends `/help` to the agent)
+
 ## Cross-Platform Sharing
 
 You can seamlessly move conversations between the Web UI and Telegram:
@@ -222,6 +251,8 @@ Use `!reload-force` to reload all agents regardless of whether their source chan
 - `ObservableCAFE_TRACE`: Set to `1` to enable detailed logging of LLM context.
 - `TELEGRAM_TOKEN`: Telegram bot token.
 - `TRUST_DB_PATH`: Path to the SQLite trust and session database.
+- `RXCAFE_URL`: TUI server URL (default: `http://localhost:3000`).
+- `RXCAFE_TOKEN`: TUI API token (generate with `bun start -- --generate-token`).
 
 ## Security Model
 
