@@ -486,6 +486,7 @@ class ChatApp implements Component, Focusable {
     if (trimmed === '/quit' || trimmed === '/exit') {
       this.disconnect();
       this.tui.stop();
+      process.exit(0);
       return;
     }
     
