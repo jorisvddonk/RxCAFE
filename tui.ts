@@ -255,18 +255,28 @@ class ChatApp implements Component, Focusable {
   private handleStreamData(data: any) {
     switch (data.type) {
       case 'user':
-        if (data.chunk) {
+        if (data.chunk && typeof data.chunk.content === 'string') {
           this.addMessage('user', data.chunk.content);
         }
         break;
       case 'chunk':
         if (data.chunk) {
           const role = data.chunk.annotations?.['chat.role'];
-          if (role === 'assistant' && data.chunk.content) {
-            this.addMessage('assistant', data.chunk.content);
-            this.loading = false;
-            this.loader.stop();
-            this.tui.requestRender();
+          const content = data.chunk.content;
+          const contentType = data.chunk.contentType;
+          
+          if (role === 'assistant') {
+            if (typeof content === 'string') {
+              this.addMessage('assistant', content);
+            } else if (contentType === 'binary') {
+              const mimeType = data.chunk.annotations?.['image.mime-type'] || data.chunk.annotations?.['audio.mime-type'];
+              const desc = data.chunk.annotations?.['image.description'] || data.chunk.annotations?.['audio.description'] || 'attachment';
+              const label = mimeType ? `${mimeType}: ${desc}` : desc;
+              this.addMessage('system', `[${label} - not displayed in TUI]`);
+              this.loading = false;
+              this.loader.stop();
+              this.tui.requestRender();
+            }
           }
         }
         break;
@@ -297,6 +307,7 @@ class ChatApp implements Component, Focusable {
   }
   
   addMessage(role: string, content: string) {
+    if (typeof content !== 'string') return;
     this.messages.push({ role, content });
     this.tui.requestRender();
   }
@@ -375,7 +386,7 @@ class ChatApp implements Component, Focusable {
     try {
       const history = await this.api<Chunk[]>(`/api/session/${sessionId}/history`);
       for (const chunk of history) {
-        if (chunk.contentType === 'text') {
+        if (chunk.contentType === 'text' && typeof chunk.content === 'string') {
           const role = chunk.annotations['chat.role'];
           if (role === 'user' || role === 'assistant' || role === 'system') {
             this.addMessage(role, chunk.content);
