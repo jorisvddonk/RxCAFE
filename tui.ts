@@ -328,11 +328,13 @@ class ChatApp implements Component, Focusable {
   }
   
   private updateSessionsList() {
-    const items: SelectItem[] = this.knownSessions.map(s => ({
-      value: s.id,
-      label: s.displayName || s.agentName,
-      description: `${s.id.slice(0, 12)}...${s.id.slice(-4)} ${s.isBackground ? '[background]' : ''}`
-    }));
+    const items: SelectItem[] = this.knownSessions
+      .filter(s => s.id)
+      .map(s => ({
+        value: s.id,
+        label: s.displayName || s.agentName,
+        description: `${s.id.slice(0, 12)}...${s.id.slice(-4)} ${s.isBackground ? '[background]' : ''}`
+      }));
     
     if (items.length === 0) {
       items.push({ value: '', label: 'No sessions', description: 'Create a new session' });
@@ -350,15 +352,12 @@ class ChatApp implements Component, Focusable {
   }
   
   private updateNewSessionList() {
-    const items: SelectItem[] = this.agents.map(name => ({
+    const agentNames = this.agents.length > 0 ? this.agents : ['default'];
+    const items: SelectItem[] = agentNames.map(name => ({
       value: name,
       label: name,
       description: ''
     }));
-    
-    if (items.length === 0) {
-      items.push({ value: 'default', label: 'default', description: 'default agent' });
-    }
     
     this.sessionsList = new SelectList(items, 10, {
       selectedPrefix: (s) => chalk.yellow(s),
@@ -414,23 +413,29 @@ class ChatApp implements Component, Focusable {
   }
   
   private async createSession(agentId: string) {
+    const finalAgent = agentId || 'default';
     try {
-      const result = await this.api<{ id: string }>('/api/session', {
+      this.addMessage('tui', `Creating session with ${finalAgent}...`);
+      const result = await this.api<{ sessionId: string }>('/api/session', {
         method: 'POST',
         body: JSON.stringify({ 
-          agentId,
+          agentId: finalAgent,
           backend: 'ollama',
           model: 'gemma3:1b'
         })
       });
       
+      if (!result.sessionId) {
+        throw new Error('No sessionId returned');
+      }
+      
       this.knownSessions.push({
-        id: result.id,
-        agentName: agentId,
+        id: result.sessionId,
+        agentName: finalAgent,
         isBackground: false
       });
       
-      await this.switchToSession(result.id);
+      await this.switchToSession(result.sessionId);
       this.setMode('chat');
     } catch (err: any) {
       this.addMessage('tui', `Failed to create session: ${err.message}`);
