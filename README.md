@@ -109,7 +109,7 @@ This app implements the ObservableCAFE pattern:
    bun start -- --trust-telegram <your_username_or_id>
    ```
 
-4. **(Optional) Configure Voice Chat**: For voice input support, install and run [Handy](https://handy.computer/) (free, offline speech-to-text). You need a version with local API capabilities, which may be a fork (https://github.com/Yorick-Ryu/Handy/)
+4. **(Optional) Configure Voice Chat**: For voice input support, install and run [Handy](https://handy.computer/) (free, offline speech-to-text). You need a version with local API capabilities, which may be a fork (https://github.com/jorisvddonk/Handy)
 
 5. **Run the server**:
    ```bash
