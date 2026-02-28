@@ -94,6 +94,7 @@ class ChatApp implements Component, Focusable {
   private tui: TUI;
   private abortController: AbortController | null = null;
   private streamRunning = false;
+  private streamReader: ReadableStreamDefaultReader | null = null;
   
   constructor(tui: TUI) {
     this.tui = tui;
@@ -220,6 +221,7 @@ class ChatApp implements Component, Focusable {
         throw new Error('No response body');
       }
       
+      this.streamReader = reader;
       const decoder = new TextDecoder();
       let buffer = '';
       
@@ -244,6 +246,8 @@ class ChatApp implements Component, Focusable {
           }
         }
       }
+      
+      this.streamReader = null;
     } catch (err: any) {
       if (this.streamRunning) {
         this.addMessage('system', `Stream error: ${err.message}, reconnecting...`);
@@ -455,6 +459,10 @@ class ChatApp implements Component, Focusable {
   
   private disconnect() {
     this.streamRunning = false;
+    if (this.streamReader) {
+      this.streamReader.cancel();
+      this.streamReader = null;
+    }
     if (this.abortController) {
       this.abortController.abort();
       this.abortController = null;
