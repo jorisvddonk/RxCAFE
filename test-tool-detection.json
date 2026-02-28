@@ -1,0 +1,53 @@
+{
+  "name": "Tool Detection Tests",
+  "backend": "ollama",
+  "model": "gemma3:1b",
+  "timeout": 60000,
+  "tests": [
+    {
+      "name": "Tool call detection and execution",
+      "chunks": [
+        { 
+          "content": "Roll a d20 for me", 
+          "annotations": { "chat.role": "user" }, 
+          "emit": true 
+        }
+      ],
+      "expect": {
+        "minChunks": 2,
+        "roles": ["assistant", "assistant"],
+        "containsText": "d20"
+      }
+    },
+    {
+      "name": "Multiple tool calls",
+      "chunks": [
+        { 
+          "content": "Roll 2d6 and then 1d10", 
+          "annotations": { "chat.role": "user" }, 
+          "emit": true 
+        }
+      ],
+      "expect": {
+        "minChunks": 2,
+        "roles": ["assistant", "assistant"],
+        "containsText": "d6"
+      }
+    },
+    {
+      "name": "Tool call with modifier",
+      "chunks": [
+        { 
+          "content": "Roll 1d8+2", 
+          "annotations": { "chat.role": "user" }, 
+          "emit": true 
+        }
+      ],
+      "expect": {
+        "minChunks": 2,
+        "roles": ["assistant", "assistant"],
+        "containsText": "+2"
+      }
+    }
+  ]
+}
