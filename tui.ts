@@ -73,7 +73,26 @@ interface Message {
   content: string;
 }
 
-type AppMode = 'chat' | 'sessions' | 'new-session';
+type AppMode = 'chat' | 'sessions' | 'new-session' | 'wizard';
+
+interface AgentInfo {
+  name: string;
+  description?: string;
+  configSchema?: {
+    properties?: Record<string, any>;
+  };
+}
+
+interface WizardState {
+  step: number;
+  agent: string;
+  backend: string;
+  model: string;
+  systemPrompt: string;
+  temperature: string;
+  maxTokens: string;
+  topP: string;
+}
 
 class ChatApp implements Component, Focusable {
   private messages: Message[] = [];
@@ -83,7 +102,25 @@ class ChatApp implements Component, Focusable {
   private _focused = false;
   private mode: AppMode = 'chat';
   private knownSessions: Session[] = [];
-  private agents: string[] = [];
+  private agents: AgentInfo[] = [];
+  
+  private header: Text;
+  private inputBox: Box;
+  private input: Input;
+  private loader: Loader;
+  private sessionsList: SelectList;
+  
+  private wizardState: WizardState = {
+    step: 0,
+    agent: 'default',
+    backend: 'ollama',
+    model: 'gemma3:1b',
+    systemPrompt: '',
+    temperature: '0.7',
+    maxTokens: '500',
+    topP: '0.9'
+  };
+  private wizardInput = '';
   
   private header: Text;
   private inputBox: Box;
@@ -153,7 +190,7 @@ class ChatApp implements Component, Focusable {
       
       const agentsResp = await fetch(`${SERVER_URL}/api/agents`, { headers });
       const agentsData = await agentsResp.json();
-      this.agents = Array.isArray(agentsData) ? agentsData.map((a: any) => a.name || a) : [];
+      this.agents = agentsData.agents || [];
       
       if (this.knownSessions.length > 0) {
         await this.switchToSession(this.knownSessions[0].id);
@@ -352,24 +389,232 @@ class ChatApp implements Component, Focusable {
   }
   
   private updateNewSessionList() {
-    const agentNames = this.agents.length > 0 ? this.agents : ['default'];
-    const items: SelectItem[] = agentNames.map(name => ({
-      value: name,
-      label: name,
-      description: ''
-    }));
-    
-    this.sessionsList = new SelectList(items, 10, {
-      selectedPrefix: (s) => chalk.yellow(s),
-      selectedText: (s) => chalk.white(s),
-      description: (s) => chalk.gray(s),
-      scrollInfo: (s) => chalk.gray(s),
-      noMatch: (s) => chalk.red(s),
-    });
-    this.sessionsList.onSelect = (item) => {
-      this.createSession(item.value);
+    this.wizardState = {
+      step: 0,
+      agent: this.agents.length > 0 ? this.agents[0].name : 'default',
+      backend: 'ollama',
+      model: 'gemma3:1b',
+      systemPrompt: '',
+      temperature: '0.7',
+      maxTokens: '500',
+      topP: '0.9'
     };
-    this.sessionsList.onCancel = () => this.setMode('chat');
+    this.wizardInput = '';
+    this.mode = 'wizard';
+    this.tui.requestRender();
+  }
+  
+  private getCurrentAgentSchema() {
+    const agent = this.agents.find(a => a.name === this.wizardState.agent);
+    return agent?.configSchema?.properties || {};
+  }
+  
+  private getWizardStepConfig() {
+    const schema = this.getCurrentAgentSchema();
+    const steps: { title: string; field: string; options?: string[] }[] = [
+      { title: 'Select Agent', field: 'agent' }
+    ];
+    
+    if (schema.backend) {
+      steps.push({ title: 'Backend', field: 'backend', options: ['ollama', 'kobold'] });
+    }
+    if (schema.properties?.model || schema.model) {
+      steps.push({ title: 'Model', field: 'model' });
+    }
+    if (schema.systemPrompt) {
+      steps.push({ title: 'System Prompt', field: 'systemPrompt' });
+    }
+    if (schema.llmParams?.properties?.temperature) {
+      steps.push({ title: 'Temperature', field: 'temperature' });
+    }
+    if (schema.llmParams?.properties?.maxTokens) {
+      steps.push({ title: 'Max Tokens', field: 'maxTokens' });
+    }
+    if (schema.llmParams?.properties?.topP) {
+      steps.push({ title: 'Top P', field: 'topP' });
+    }
+    
+    steps.push({ title: 'Create Session', field: 'create' });
+    
+    return steps;
+  }
+  
+  private renderWizardMode(width: number): string[] {
+    const lines: string[] = [];
+    lines.push(...this.header.render(width));
+    lines.push("");
+    lines.push(chalk.bold.cyan("New Session"));
+    
+    const steps = this.getWizardStepConfig();
+    const currentStep = steps[this.wizardState.step];
+    
+    // Render step indicators
+    const stepIndicators = steps.map((s, i) => {
+      if (i < this.wizardState.step) return chalk.green("✓");
+      if (i === this.wizardState.step) return chalk.yellow(String(i + 1));
+      return chalk.gray(String(i + 1));
+    }).join(" > ");
+    lines.push(stepIndicators);
+    lines.push("");
+    
+    // Current step content
+    lines.push(chalk.bold(`${currentStep.title}:`));
+    lines.push("");
+    
+    if (currentStep.field === 'agent') {
+      for (const agent of this.agents) {
+        const marker = agent.name === this.wizardState.agent ? "▶" : " ";
+        const selected = agent.name === this.wizardState.agent ? chalk.yellow(marker) : chalk.gray(marker);
+        lines.push(`${selected} ${agent.name} ${chalk.gray(agent.description || '')}`);
+      }
+      lines.push("");
+      lines.push(chalk.gray("Use ↑/↓ to select, Enter to continue, Escape to cancel"));
+    } else if (currentStep.options) {
+      for (const opt of currentStep.options) {
+        const marker = opt === (this.wizardState as any)[currentStep.field] ? "▶" : " ";
+        const selected = opt === (this.wizardState as any)[currentStep.field] ? chalk.yellow(marker) : chalk.gray(marker);
+        lines.push(`${selected} ${opt}`);
+      }
+      lines.push("");
+      lines.push(chalk.gray("Use ↑/↓ to select, Enter to continue, Escape to go back"));
+    } else if (currentStep.field === 'systemPrompt') {
+      lines.push(chalk.gray("Current: " + (this.wizardState.systemPrompt || "(none)")));
+      lines.push("");
+      lines.push(chalk.gray("Type system prompt and press Enter, or Enter for none"));
+      lines.push(chalk.gray("Escape to go back"));
+    } else if (currentStep.field === 'create') {
+      lines.push(chalk.green(`Agent: ${this.wizardState.agent}`));
+      lines.push(chalk.green(`Backend: ${this.wizardState.backend}`));
+      lines.push(chalk.green(`Model: ${this.wizardState.model}`));
+      if (this.wizardState.systemPrompt) {
+        const sys = this.wizardState.systemPrompt.slice(0, 30);
+        lines.push(chalk.green(`System: ${sys}...`));
+      }
+      lines.push(chalk.green(`Temperature: ${this.wizardState.temperature}`));
+      lines.push(chalk.green(`Max Tokens: ${this.wizardState.maxTokens}`));
+      lines.push(chalk.green(`Top P: ${this.wizardState.topP}`));
+      lines.push("");
+      lines.push(chalk.gray("Press Enter to create, Escape to go back"));
+    } else {
+      const currentValue = (this.wizardState as any)[currentStep.field];
+      lines.push(chalk.gray(`Current: ${currentValue}`));
+      lines.push("");
+      lines.push(chalk.gray("Type value and press Enter, Escape to go back"));
+    }
+    
+    return lines;
+  }
+  
+  private handleWizardInput(data: string) {
+    if (!data || typeof data !== 'string') return;
+    
+    if (matchesKey(data, Key.escape)) {
+      if (this.wizardState.step > 0) {
+        this.wizardState.step--;
+        this.tui.requestRender();
+      } else {
+        this.setMode('chat');
+      }
+      return;
+    }
+    
+    const steps = this.getWizardStepConfig();
+    const currentStep = steps[this.wizardState.step];
+    
+    if (matchesKey(data, Key.enter)) {
+      if (currentStep.field === 'agent') {
+        // Move to next step
+        this.wizardState.step++;
+        this.tui.requestRender();
+      } else if (currentStep.field === 'create') {
+        this.createSessionWithConfig();
+      } else if (currentStep.options) {
+        // For options, need to use arrow keys - handled below
+      } else if (currentStep.field === 'systemPrompt') {
+        this.wizardState.step++;
+        this.tui.requestRender();
+      } else {
+        // Text/number input - move to next step after user typed
+        this.wizardState.step++;
+        this.tui.requestRender();
+      }
+      return;
+    }
+    
+    // Handle arrow keys for agent/option selection
+    if (matchesKey(data, Key.arrowUp) || matchesKey(data, Key.arrowDown)) {
+      if (currentStep.field === 'agent') {
+        const idx = this.agents.findIndex(a => a.name === this.wizardState.agent);
+        let newIdx = idx;
+        if (matchesKey(data, Key.arrowUp)) newIdx = idx > 0 ? idx - 1 : this.agents.length - 1;
+        else newIdx = idx < this.agents.length - 1 ? idx + 1 : 0;
+        this.wizardState.agent = this.agents[newIdx].name;
+        this.tui.requestRender();
+      } else if (currentStep.options) {
+        const opts = currentStep.options;
+        const currentVal = (this.wizardState as any)[currentStep.field];
+        const idx = opts.indexOf(currentVal);
+        let newIdx = idx;
+        if (matchesKey(data, Key.arrowUp)) newIdx = idx > 0 ? idx - 1 : opts.length - 1;
+        else newIdx = idx < opts.length - 1 ? idx + 1 : 0;
+        (this.wizardState as any)[currentStep.field] = opts[newIdx];
+        this.tui.requestRender();
+      }
+    }
+  }
+  
+  private async createSessionWithConfig() {
+    try {
+      this.addMessage('tui', `Creating session...`);
+      
+      const llmParams: Record<string, any> = {};
+      const schema = this.getCurrentAgentSchema();
+      
+      if (schema.llmParams?.properties?.temperature) {
+        llmParams.temperature = parseFloat(this.wizardState.temperature);
+      }
+      if (schema.llmParams?.properties?.maxTokens) {
+        llmParams.maxTokens = parseInt(this.wizardState.maxTokens);
+      }
+      if (schema.llmParams?.properties?.topP) {
+        llmParams.topP = parseFloat(this.wizardState.topP);
+      }
+      
+      const body: any = {
+        agentId: this.wizardState.agent,
+        backend: this.wizardState.backend,
+        model: this.wizardState.model
+      };
+      
+      if (this.wizardState.systemPrompt) {
+        body.systemPrompt = this.wizardState.systemPrompt;
+      }
+      
+      if (Object.keys(llmParams).length > 0) {
+        body.llmParams = llmParams;
+      }
+      
+      const result = await this.api<{ sessionId: string }>('/api/session', {
+        method: 'POST',
+        body: JSON.stringify(body)
+      });
+      
+      if (!result.sessionId) {
+        throw new Error('No sessionId returned');
+      }
+      
+      this.knownSessions.push({
+        id: result.sessionId,
+        agentName: this.wizardState.agent,
+        isBackground: false
+      });
+      
+      await this.switchToSession(result.sessionId);
+      this.setMode('chat');
+    } catch (err: any) {
+      this.addMessage('tui', `Failed to create session: ${err.message}`);
+      this.setMode('chat');
+    }
   }
   
   private handleSessionSelect(item: SelectItem) {
@@ -614,6 +859,9 @@ class ChatApp implements Component, Focusable {
     if (this.mode === 'sessions' || this.mode === 'new-session') {
       return this.renderSessionsMode(width);
     }
+    if (this.mode === 'wizard') {
+      return this.renderWizardMode(width);
+    }
     return this.renderChatMode(width);
   }
   
@@ -673,7 +921,11 @@ class ChatApp implements Component, Focusable {
   }
   
   handleInput(data: string): void {
-    if (this.mode === 'sessions' || this.mode === 'new-session') {
+    if (!data || typeof data !== 'string') return;
+    
+    if (this.mode === 'wizard') {
+      this.handleWizardInput(data);
+    } else if (this.mode === 'sessions' || this.mode === 'new-session') {
       if (matchesKey(data, Key.escape)) {
         this.setMode('chat');
       } else if (data === 'd' || data === 'D') {
