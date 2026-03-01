@@ -93,6 +93,7 @@ interface WizardState {
   maxTokens: string;
   topP: string;
   currentTextInput: string;
+  customFields: Record<string, string>;
 }
 
 class ChatApp implements Component, Focusable {
@@ -120,7 +121,8 @@ class ChatApp implements Component, Focusable {
     temperature: '0.7',
     maxTokens: '500',
     topP: '0.9',
-    currentTextInput: ''
+    currentTextInput: '',
+    customFields: {}
   };
   private wizardInput = '';
   
@@ -391,16 +393,21 @@ class ChatApp implements Component, Focusable {
   }
   
   private updateNewSessionList() {
+    const defaultAgent = this.agents.find(a => a.name === 'default')?.name 
+      || this.agents.find(a => a.name === 'voice-chat')?.name
+      || this.agents[0]?.name 
+      || 'default';
     this.wizardState = {
       step: 0,
-      agent: this.agents.length > 0 ? this.agents[0].name : 'default',
+      agent: defaultAgent,
       backend: 'ollama',
       model: 'gemma3:1b',
       systemPrompt: '',
       temperature: '0.7',
       maxTokens: '500',
       topP: '0.9',
-      currentTextInput: ''
+      currentTextInput: '',
+      customFields: {}
     };
     this.wizardInput = '';
     this.mode = 'wizard';
@@ -409,32 +416,62 @@ class ChatApp implements Component, Focusable {
   
   private getCurrentAgentSchema() {
     const agent = this.agents.find(a => a.name === this.wizardState.agent);
-    return agent?.configSchema?.properties || {};
+    const configSchema = agent?.configSchema;
+    if (!configSchema) return {};
+    if (typeof configSchema !== 'object') return {};
+    return (configSchema as any).properties || {};
   }
   
   private getWizardStepConfig() {
-    const schema = this.getCurrentAgentSchema();
-    const steps: { title: string; field: string; options?: string[] }[] = [
+    const properties = this.getCurrentAgentSchema(); // Already returns properties object
+    const steps: { title: string; field: string; options?: string[]; inputType?: 'text' | 'number' | 'select' }[] = [
       { title: 'Select Agent', field: 'agent' }
     ];
     
-    if (schema.backend) {
-      steps.push({ title: 'Backend', field: 'backend', options: ['ollama', 'kobold'] });
+    if (properties.backend) {
+      steps.push({ title: 'Backend', field: 'backend', options: ['ollama', 'kobold'], inputType: 'select' });
     }
-    if (schema.properties?.model || schema.model) {
+    if (properties.model) {
       steps.push({ title: 'Model', field: 'model' });
     }
-    if (schema.systemPrompt) {
+    if (properties.systemPrompt) {
       steps.push({ title: 'System Prompt', field: 'systemPrompt' });
     }
-    if (schema.llmParams?.properties?.temperature) {
-      steps.push({ title: 'Temperature', field: 'temperature' });
+    
+    // Handle llmParams nested properties
+    if (properties.llmParams?.properties) {
+      for (const [key, prop] of Object.entries(properties.llmParams.properties)) {
+        const llmProp = prop as any;
+        if (llmProp.enum) {
+          steps.push({ title: `${key}`, field: `llmParams.${key}`, options: llmProp.enum, inputType: 'select' });
+        } else if (llmProp.type === 'number' || llmProp.type === 'integer') {
+          steps.push({ title: `${key}`, field: `llmParams.${key}`, inputType: 'number' });
+        }
+      }
     }
-    if (schema.llmParams?.properties?.maxTokens) {
-      steps.push({ title: 'Max Tokens', field: 'maxTokens' });
-    }
-    if (schema.llmParams?.properties?.topP) {
-      steps.push({ title: 'Top P', field: 'topP' });
+    
+    // Handle other nested objects (like handyConfig)
+    for (const [key, prop] of Object.entries(properties)) {
+      if (['backend', 'model', 'systemPrompt', 'llmParams'].includes(key)) continue;
+      const nestedSchema = prop as any;
+      if (nestedSchema.type === 'object' && nestedSchema.properties) {
+        for (const [nestedKey, nestedProp] of Object.entries(nestedSchema.properties)) {
+          const nestedPropDef = nestedProp as any;
+          if (nestedPropDef.enum) {
+            steps.push({ title: `${key}: ${nestedKey}`, field: `${key}.${nestedKey}`, options: nestedPropDef.enum, inputType: 'select' });
+          } else if (nestedPropDef.type === 'number' || nestedPropDef.type === 'integer') {
+            steps.push({ title: `${key}: ${nestedKey}`, field: `${key}.${nestedKey}`, inputType: 'number' });
+          } else {
+            steps.push({ title: `${key}: ${nestedKey}`, field: `${key}.${nestedKey}` });
+          }
+        }
+      } else if (nestedSchema.enum) {
+        steps.push({ title: nestedSchema.description || key, field: key, options: nestedSchema.enum, inputType: 'select' });
+      } else if (nestedSchema.type === 'number' || nestedSchema.type === 'integer') {
+        steps.push({ title: nestedSchema.description || key, field: key, inputType: 'number' });
+      } else {
+        steps.push({ title: nestedSchema.description || key, field: key });
+      }
     }
     
     steps.push({ title: 'Create Session', field: 'create' });
@@ -491,21 +528,48 @@ class ChatApp implements Component, Focusable {
       }
       lines.push(chalk.gray("Escape to go back"));
     } else if (currentStep.field === 'create') {
+      const properties = this.getCurrentAgentSchema(); // Already returns properties object
+      
       lines.push(chalk.green(`Agent: ${this.wizardState.agent}`));
-      lines.push(chalk.green(`Backend: ${this.wizardState.backend}`));
-      lines.push(chalk.green(`Model: ${this.wizardState.model}`));
-      if (this.wizardState.systemPrompt) {
+      if (properties.backend) {
+        lines.push(chalk.green(`Backend: ${this.wizardState.backend}`));
+      }
+      if (properties.model) {
+        lines.push(chalk.green(`Model: ${this.wizardState.model}`));
+      }
+      if (this.wizardState.systemPrompt && properties.systemPrompt) {
         const sys = this.wizardState.systemPrompt.slice(0, 30);
         lines.push(chalk.green(`System: ${sys}...`));
       }
-      lines.push(chalk.green(`Temperature: ${this.wizardState.temperature}`));
-      lines.push(chalk.green(`Max Tokens: ${this.wizardState.maxTokens}`));
-      lines.push(chalk.green(`Top P: ${this.wizardState.topP}`));
+      // Show llmParams fields
+      if (properties.llmParams?.properties) {
+        if (this.wizardState.customFields['llmParams.temperature']) {
+          lines.push(chalk.green(`Temperature: ${this.wizardState.customFields['llmParams.temperature']}`));
+        }
+        if (this.wizardState.customFields['llmParams.maxTokens']) {
+          lines.push(chalk.green(`Max Tokens: ${this.wizardState.customFields['llmParams.maxTokens']}`));
+        }
+        if (this.wizardState.customFields['llmParams.topP']) {
+          lines.push(chalk.green(`Top P: ${this.wizardState.customFields['llmParams.topP']}`));
+        }
+      }
+      // Show customFields (includes llmParams and other nested fields)
+      for (const [key, value] of Object.entries(this.wizardState.customFields)) {
+        if (key.startsWith('llmParams.')) continue; // Already shown above
+        lines.push(chalk.green(`${key}: ${value}`));
+      }
       lines.push("");
       lines.push(chalk.gray("Press Enter to create, Escape to go back"));
     } else {
-      const currentValue = (this.wizardState as any)[currentStep.field];
-      lines.push(chalk.gray(`Current: ${currentValue}`));
+      // Get value from either wizardState or customFields (for nested fields)
+      let currentValue = '';
+      const topLevelFields = ['backend', 'model', 'systemPrompt', 'temperature', 'maxTokens', 'topP'];
+      if (topLevelFields.includes(currentStep.field)) {
+        currentValue = (this.wizardState as any)[currentStep.field] || '';
+      } else {
+        currentValue = this.wizardState.customFields[currentStep.field] || '';
+      }
+      lines.push(chalk.gray(`Current: ${currentValue || '(none)'}`));
       lines.push("");
       if (this.wizardState.currentTextInput) {
         lines.push(chalk.cyan(`> ${this.wizardState.currentTextInput}_`));
@@ -558,7 +622,11 @@ class ChatApp implements Component, Focusable {
       } else if (currentStep.field === 'create') {
         this.createSessionWithConfig();
       } else if (currentStep.options) {
-        // Options step - Enter confirms selection and moves to next step
+        // Options step - save current selection to customFields and move to next step
+        const currentVal = (this.wizardState as any)[currentStep.field];
+        if (currentVal) {
+          this.wizardState.customFields[currentStep.field] = currentVal;
+        }
         this.wizardState.step++;
         this.tui.requestRender();
       } else if (currentStep.field === 'systemPrompt') {
@@ -570,9 +638,9 @@ class ChatApp implements Component, Focusable {
         this.wizardState.step++;
         this.tui.requestRender();
       } else {
-        // Text/number input - save currentTextInput to the field and move to next step
+        // All other fields (including nested like llmParams.temperature) go to customFields
         if (this.wizardState.currentTextInput) {
-          (this.wizardState as any)[currentStep.field] = this.wizardState.currentTextInput;
+          this.wizardState.customFields[currentStep.field] = this.wizardState.currentTextInput;
         }
         this.wizardState.currentTextInput = '';
         this.wizardState.step++;
@@ -589,6 +657,8 @@ class ChatApp implements Component, Focusable {
         if (matchesKey(data, Key.up)) newIdx = idx > 0 ? idx - 1 : this.agents.length - 1;
         else newIdx = idx < this.agents.length - 1 ? idx + 1 : 0;
         this.wizardState.agent = this.agents[newIdx].name;
+        this.wizardState.customFields = {};
+        this.wizardState.currentTextInput = '';
         this.tui.requestRender();
       } else if (currentStep.options) {
         const opts = currentStep.options;
@@ -607,18 +677,7 @@ class ChatApp implements Component, Focusable {
     try {
       this.addMessage('tui', `Creating session...`);
       
-      const llmParams: Record<string, any> = {};
       const schema = this.getCurrentAgentSchema();
-      
-      if (schema.llmParams?.properties?.temperature) {
-        llmParams.temperature = parseFloat(this.wizardState.temperature);
-      }
-      if (schema.llmParams?.properties?.maxTokens) {
-        llmParams.maxTokens = parseInt(this.wizardState.maxTokens);
-      }
-      if (schema.llmParams?.properties?.topP) {
-        llmParams.topP = parseFloat(this.wizardState.topP);
-      }
       
       const body: any = {
         agentId: this.wizardState.agent,
@@ -630,8 +689,28 @@ class ChatApp implements Component, Focusable {
         body.systemPrompt = this.wizardState.systemPrompt;
       }
       
-      if (Object.keys(llmParams).length > 0) {
-        body.llmParams = llmParams;
+      // Handle all custom fields, including nested ones (e.g., llmParams.temperature, handyConfig.baseUrl)
+      for (const [key, value] of Object.entries(this.wizardState.customFields)) {
+        if (!value) continue;
+        
+        if (key.includes('.')) {
+          const [parent, child] = key.split('.');
+          if (!body[parent]) body[parent] = {};
+          const schema = this.getCurrentAgentSchema();
+          const parentSchema = (schema.properties?.[parent] as any)?.properties?.[child];
+          if (parentSchema?.type === 'number' || parentSchema?.type === 'integer') {
+            body[parent][child] = parseFloat(value);
+          } else {
+            body[parent][child] = value;
+          }
+        } else {
+          const propSchema = (schema.properties as any)?.[key];
+          if (propSchema?.type === 'number' || propSchema?.type === 'integer') {
+            body[key] = parseFloat(value);
+          } else {
+            body[key] = value;
+          }
+        }
       }
       
       const result = await this.api<{ sessionId: string }>('/api/session', {

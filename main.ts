@@ -1398,7 +1398,7 @@ async function handleListAgents(): Promise<Response> {
       name: a.name,
       description: a.description,
       startInBackground: a.startInBackground,
-      configSchema: a.configSchema || [],
+      configSchema: a.configSchema || { type: 'object', properties: {} },
     }))
   }), {
     headers: { 'Content-Type': 'application/json' }
