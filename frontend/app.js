@@ -488,6 +488,10 @@ class RXCafeChat {
                     chunkEl.classList.remove('trusted', 'untrusted');
                     chunkEl.classList.add(trusted ? 'trusted' : 'untrusted');
                     
+                    if (chunkEl.tagName === 'RX-MESSAGE-WEB') {
+                        chunkEl.trusted = trusted;
+                    }
+                    
                     const badge = chunkEl.querySelector('.trust-badge');
                     if (badge) {
                         badge.textContent = trusted ? 'Trusted' : 'Untrusted';
@@ -533,6 +537,10 @@ class RXCafeChat {
                 if (chunkEl) {
                     chunkEl.classList.remove('trusted', 'untrusted');
                     chunkEl.classList.add(trusted ? 'trusted' : 'untrusted');
+                    
+                    if (chunkEl.tagName === 'RX-MESSAGE-WEB') {
+                        chunkEl.trusted = trusted;
+                    }
                     
                     const badge = chunkEl.querySelector('.trust-badge');
                     if (badge) {
