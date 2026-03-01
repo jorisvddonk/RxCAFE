@@ -92,6 +92,7 @@ interface WizardState {
   temperature: string;
   maxTokens: string;
   topP: string;
+  currentTextInput: string;
 }
 
 class ChatApp implements Component, Focusable {
@@ -118,7 +119,8 @@ class ChatApp implements Component, Focusable {
     systemPrompt: '',
     temperature: '0.7',
     maxTokens: '500',
-    topP: '0.9'
+    topP: '0.9',
+    currentTextInput: ''
   };
   private wizardInput = '';
   
@@ -397,7 +399,8 @@ class ChatApp implements Component, Focusable {
       systemPrompt: '',
       temperature: '0.7',
       maxTokens: '500',
-      topP: '0.9'
+      topP: '0.9',
+      currentTextInput: ''
     };
     this.wizardInput = '';
     this.mode = 'wizard';
@@ -478,9 +481,14 @@ class ChatApp implements Component, Focusable {
       lines.push("");
       lines.push(chalk.gray("Use ↑/↓ to select, Enter to continue, Escape to go back"));
     } else if (currentStep.field === 'systemPrompt') {
-      lines.push(chalk.gray("Current: " + (this.wizardState.systemPrompt || "(none)")));
+      const existingValue = this.wizardState.systemPrompt || "(none)";
+      lines.push(chalk.gray("Current: " + existingValue));
       lines.push("");
-      lines.push(chalk.gray("Type system prompt and press Enter, or Enter for none"));
+      if (this.wizardState.currentTextInput) {
+        lines.push(chalk.cyan(`> ${this.wizardState.currentTextInput}_`));
+      } else {
+        lines.push(chalk.gray("Type system prompt and press Enter, or Enter for none"));
+      }
       lines.push(chalk.gray("Escape to go back"));
     } else if (currentStep.field === 'create') {
       lines.push(chalk.green(`Agent: ${this.wizardState.agent}`));
@@ -499,7 +507,11 @@ class ChatApp implements Component, Focusable {
       const currentValue = (this.wizardState as any)[currentStep.field];
       lines.push(chalk.gray(`Current: ${currentValue}`));
       lines.push("");
-      lines.push(chalk.gray("Type value and press Enter, Escape to go back"));
+      if (this.wizardState.currentTextInput) {
+        lines.push(chalk.cyan(`> ${this.wizardState.currentTextInput}_`));
+      } else {
+        lines.push(chalk.gray("Type value and press Enter, Escape to go back"));
+      }
     }
     
     return lines;
@@ -511,6 +523,7 @@ class ChatApp implements Component, Focusable {
     if (matchesKey(data, Key.escape)) {
       if (this.wizardState.step > 0) {
         this.wizardState.step--;
+        this.wizardState.currentTextInput = '';
         this.tui.requestRender();
       } else {
         this.setMode('chat');
@@ -521,6 +534,22 @@ class ChatApp implements Component, Focusable {
     const steps = this.getWizardStepConfig();
     const currentStep = steps[this.wizardState.step];
     
+    // Handle text input for text/number fields (not agent, not create, not options)
+    if (!currentStep.options && currentStep.field !== 'agent' && currentStep.field !== 'create') {
+      if (matchesKey(data, Key.backspace)) {
+        this.wizardState.currentTextInput = this.wizardState.currentTextInput.slice(0, -1);
+        this.tui.requestRender();
+        return;
+      }
+      
+      // Handle regular text input
+      if (data.length === 1 && !data.match(/[\x00-\x1F]/)) {
+        this.wizardState.currentTextInput += data;
+        this.tui.requestRender();
+        return;
+      }
+    }
+    
     if (matchesKey(data, Key.enter)) {
       if (currentStep.field === 'agent') {
         // Move to next step
@@ -529,12 +558,23 @@ class ChatApp implements Component, Focusable {
       } else if (currentStep.field === 'create') {
         this.createSessionWithConfig();
       } else if (currentStep.options) {
-        // For options, need to use arrow keys - handled below
+        // Options step - Enter confirms selection and moves to next step
+        this.wizardState.step++;
+        this.tui.requestRender();
       } else if (currentStep.field === 'systemPrompt') {
+        // Save the text input to systemPrompt
+        if (this.wizardState.currentTextInput) {
+          this.wizardState.systemPrompt = this.wizardState.currentTextInput;
+        }
+        this.wizardState.currentTextInput = '';
         this.wizardState.step++;
         this.tui.requestRender();
       } else {
-        // Text/number input - move to next step after user typed
+        // Text/number input - save currentTextInput to the field and move to next step
+        if (this.wizardState.currentTextInput) {
+          (this.wizardState as any)[currentStep.field] = this.wizardState.currentTextInput;
+        }
+        this.wizardState.currentTextInput = '';
         this.wizardState.step++;
         this.tui.requestRender();
       }
@@ -542,11 +582,11 @@ class ChatApp implements Component, Focusable {
     }
     
     // Handle arrow keys for agent/option selection
-    if (matchesKey(data, Key.arrowUp) || matchesKey(data, Key.arrowDown)) {
+    if (matchesKey(data, Key.up) || matchesKey(data, Key.down)) {
       if (currentStep.field === 'agent') {
         const idx = this.agents.findIndex(a => a.name === this.wizardState.agent);
         let newIdx = idx;
-        if (matchesKey(data, Key.arrowUp)) newIdx = idx > 0 ? idx - 1 : this.agents.length - 1;
+        if (matchesKey(data, Key.up)) newIdx = idx > 0 ? idx - 1 : this.agents.length - 1;
         else newIdx = idx < this.agents.length - 1 ? idx + 1 : 0;
         this.wizardState.agent = this.agents[newIdx].name;
         this.tui.requestRender();
@@ -555,7 +595,7 @@ class ChatApp implements Component, Focusable {
         const currentVal = (this.wizardState as any)[currentStep.field];
         const idx = opts.indexOf(currentVal);
         let newIdx = idx;
-        if (matchesKey(data, Key.arrowUp)) newIdx = idx > 0 ? idx - 1 : opts.length - 1;
+        if (matchesKey(data, Key.up)) newIdx = idx > 0 ? idx - 1 : opts.length - 1;
         else newIdx = idx < opts.length - 1 ? idx + 1 : 0;
         (this.wizardState as any)[currentStep.field] = opts[newIdx];
         this.tui.requestRender();
@@ -767,6 +807,7 @@ class ChatApp implements Component, Focusable {
     }
     
     if (trimmed === '/new' || trimmed === '/new-session') {
+      this.wizardState.currentTextInput = '';
       this.setMode('new-session');
       return;
     }
