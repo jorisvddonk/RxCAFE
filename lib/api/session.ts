@@ -150,7 +150,28 @@ export async function handleGetHistory(sessionId: string): Promise<Response> {
 }
 
 export async function handleToggleTrust(sessionId: string, chunkId: string, trusted: boolean): Promise<Response> {
-  const session = getSession(sessionId);
+  let session = getSession(sessionId);
+  
+  if (!session && sessionStore) {
+    const sessionData = await sessionStore.loadSession(sessionId);
+    if (sessionData) {
+      const agent = getAgent(sessionData.agentName);
+      if (agent) {
+        const restoredSession = await createSession(config, {
+          agentId: sessionData.agentName,
+          isBackground: sessionData.isBackground,
+          sessionId: sessionId,
+          ...sessionData.config,
+          systemPrompt: sessionData.systemPrompt || undefined,
+        });
+        
+        if (restoredSession._agentContext) {
+          await restoredSession._agentContext.loadState();
+        }
+        session = restoredSession;
+      }
+    }
+  }
   
   if (!session) {
     return new Response(JSON.stringify({ error: 'Session not found' }), { status: 404, headers: { 'Content-Type': 'application/json' } });

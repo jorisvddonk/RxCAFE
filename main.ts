@@ -340,7 +340,8 @@ const server = serve({
     }
     
     if (pathname.match(/^\/api\/session\/[^/]+\/chunk\/[^/]+\/trust$/) && request.method === 'POST') {
-      const [,, sessionId,,, chunkId] = pathname.split('/');
+      const parts = pathname.split('/');
+      const [,,, sessionId,, chunkId] = parts;
       const body = await request.json();
       return addCors(await api.handleToggleTrust(sessionId, chunkId, body.trusted === true), corsHeaders);
     }
