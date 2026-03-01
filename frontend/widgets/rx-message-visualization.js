@@ -3,7 +3,7 @@ import { LitElement, html, css } from 'https://cdn.jsdelivr.net/npm/lit@3/+esm';
 export class RxMessageVisualization extends LitElement {
   static properties = {
     agentName: { type: String },
-    pipeline: { type: String },
+    pipeline: { type: Object },
     chunks: { type: Array },
     chunkId: { type: String }
   };
@@ -49,10 +49,28 @@ export class RxMessageVisualization extends LitElement {
     
     .visualization-container {
       width: 100%;
-      height: 400px;
+      min-height: 300px;
       margin-top: 0.5rem;
       border-radius: 0.5rem;
       overflow: hidden;
+    }
+    
+    .error-message {
+      padding: 1rem;
+      background-color: rgba(239, 68, 68, 0.1);
+      border: 1px solid #ef4444;
+      border-radius: 0.5rem;
+      color: #ef4444;
+      font-size: 0.875rem;
+    }
+    
+    .debug-info {
+      padding: 0.5rem;
+      background-color: rgba(0, 0, 0, 0.05);
+      border-radius: 0.25rem;
+      font-family: monospace;
+      font-size: 0.75rem;
+      margin-top: 0.5rem;
     }
     
     /* Dark theme support */
@@ -65,18 +83,23 @@ export class RxMessageVisualization extends LitElement {
       .visualization-title {
         color: #22d3ee;
       }
+      
+      .debug-info {
+        background-color: rgba(255, 255, 255, 0.1);
+        color: #e5e7eb;
+      }
     }
     
     /* Responsive */
     @media (max-width: 768px) {
       .visualization-container {
-        height: 300px;
+        min-height: 250px;
       }
     }
     
     @media (max-width: 480px) {
       .visualization-container {
-        height: 200px;
+        min-height: 200px;
       }
     }
   `;
@@ -84,20 +107,51 @@ export class RxMessageVisualization extends LitElement {
   constructor() {
     super();
     this.agentName = '';
-    this.pipeline = '';
+    this.pipeline = null;
     this.chunks = [];
     this.chunkId = '';
   }
+  
+  connectedCallback() {
+    super.connectedCallback();
+    // Read initial data set before custom element was upgraded
+    if (this._initialData) {
+      this.chunkId = this._initialData.chunkId;
+      this.agentName = this._initialData.agentName;
+      this.pipeline = this._initialData.pipeline;
+      this.chunks = this._initialData.chunks;
+      delete this._initialData;
+    }
+  }
+
+  _onContextMenu(e) {
+    e.preventDefault();
+    this.dispatchEvent(new CustomEvent('viz-contextmenu', {
+      bubbles: true,
+      composed: true,
+      detail: { chunkId: this.chunkId, originalEvent: e }
+    }));
+  }
 
   render() {
+    const hasValidPipeline = this.pipeline && typeof this.pipeline === 'object' && this.pipeline.name;
+    
     return html`
-      <div class="message" data-chunk-id=${this.chunkId}>
+      <div class="message" data-chunk-id=${this.chunkId} @contextmenu=${this._onContextMenu}>
         <div class="visualization-header">
           <span class="visualization-icon">📊</span>
-          <span class="visualization-title">RxMarbles Visualization: ${this.agentName}</span>
+          <span class="visualization-title">RxMarbles Visualization: ${this.agentName || 'Unknown'}</span>
         </div>
         <div class="visualization-container">
-          <rx-marbles-visualizer .pipeline=${this.pipeline} .chunks=${this.chunks}></rx-marbles-visualizer>
+          ${hasValidPipeline 
+            ? html`<rx-marbles-visualizer .pipeline=${this.pipeline} .chunks=${this.chunks}></rx-marbles-visualizer>`
+            : html`
+                <div class="error-message">
+                  No pipeline data available
+                  ${this.pipeline ? html`<div class="debug-info">Received: ${JSON.stringify(this.pipeline).slice(0, 200)}</div>` : ''}
+                </div>
+              `
+          }
         </div>
       </div>
     `;

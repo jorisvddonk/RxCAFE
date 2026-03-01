@@ -4,7 +4,10 @@ class RxMarblesVisualizer extends LitElement {
     static properties = {
         pipeline: { type: Object },
         chunks: { type: Array },
-        theme: { type: String }
+        theme: { type: String },
+        scale: { type: Number },
+        panX: { type: Number },
+        panY: { type: Number }
     };
 
     static styles = css`
@@ -68,72 +71,64 @@ class RxMarblesVisualizer extends LitElement {
             background: var(--bg-color, #111827);
         }
 
+        .canvas-wrapper {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            cursor: grab;
+            position: relative;
+        }
+
+        .canvas-wrapper:active {
+            cursor: grabbing;
+        }
+
         .nomnoml-container {
             width: 100%;
             min-height: 400px;
-            overflow: auto;
             padding: 20px;
+            transform-origin: center center;
+            transition: transform 0.1s ease-out;
         }
 
         .nomnoml-container svg {
-            max-width: 100%;
+            max-width: none;
             height: auto;
         }
 
-        .legend {
+        .zoom-info {
             position: absolute;
             bottom: 10px;
-            left: 10px;
+            right: 10px;
             z-index: 100;
             background: rgba(255, 255, 255, 0.9);
-            padding: 10px;
-            border-radius: 8px;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-            font-size: 12px;
-            max-width: 200px;
-        }
-
-        [data-theme="dark"] .legend {
-            background: rgba(31, 41, 55, 0.9);
-            color: #f9fafb;
-        }
-
-        .legend-item {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-bottom: 5px;
-        }
-
-        .legend-color {
-            width: 20px;
-            height: 20px;
+            padding: 4px 8px;
             border-radius: 4px;
-            border: 1px solid var(--border-color, #e5e7eb);
+            font-size: 11px;
+            color: var(--text-secondary, #6b7280);
         }
 
-        .chunk-marker {
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            display: inline-block;
-            margin-right: 5px;
+        [data-theme="dark"] .zoom-info {
+            background: rgba(31, 41, 55, 0.9);
+            color: #9ca3af;
         }
-
-        .chunk-user { background: #2563eb; }
-        .chunk-assistant { background: #f3f4f6; }
-        .chunk-system { background: #8b5cf6; }
-        .chunk-web { background: #f59e0b; }
-        .chunk-trusted { background: #10b981; }
-        .chunk-untrusted { background: #ef4444; }
 
         .loading {
             display: flex;
-            justify-content: center;
             align-items: center;
+            justify-content: center;
             height: 400px;
-            font-size: 18px;
             color: var(--text-secondary, #6b7280);
+        }
+
+        .error {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 400px;
+            color: #ef4444;
+            padding: 20px;
+            text-align: center;
         }
     `;
 
@@ -142,21 +137,20 @@ class RxMarblesVisualizer extends LitElement {
         this.pipeline = null;
         this.chunks = [];
         this.theme = 'light';
-        this.isLoading = true;
         this.nomnomlContainer = null;
-        this.isRendering = false;
         this.hasRendered = false;
-        this.nomnomlLoaded = false;
+        this.isRendering = false;
+        this.scale = 1;
+        this.panX = 0;
+        this.panY = 0;
+        this.isDragging = false;
+        this.lastMouseX = 0;
+        this.lastMouseY = 0;
     }
 
     connectedCallback() {
         super.connectedCallback();
         this.setupTheme();
-        this.loadNomNoml();
-    }
-
-    disconnectedCallback() {
-        super.disconnectedCallback();
     }
 
     setupTheme() {
@@ -173,150 +167,68 @@ class RxMarblesVisualizer extends LitElement {
         themeObserver.observe(root, { attributes: true, attributeFilter: ['data-theme'] });
     }
 
-    async loadNomNoml() {
-        try {
-            console.log('Starting to load NomNoml library');
-            
-            // Check if NomNoml is already loaded
-            if (window.nomnoml) {
-                console.log('NomNoml already loaded');
-                this.nomnomlLoaded = true;
-                this.isLoading = false;
-                this.updateDiagram();
-                return;
-            }
-
-            const script = document.createElement('script');
-            script.src = 'https://cdn.jsdelivr.net/npm/nomnoml@1.5.3/dist/nomnoml.min.js';
-            script.onload = () => {
-                console.log('NomNoml loaded successfully');
-                this.nomnomlLoaded = true;
-                this.isLoading = false;
-                if (this.nomnomlContainer) {
-                    this.updateDiagram();
-                }
-            };
-            script.onerror = (event) => {
-                console.error('Failed to load NomNoml:', event);
-                this.isLoading = false;
-                this.renderError('Failed to load NomNoml library');
-            };
-            script.timeout = 10000; // 10 second timeout
-            
-            document.head.appendChild(script);
-            
-            // Timeout to handle cases where script load never completes
-            setTimeout(() => {
-                if (!this.nomnomlLoaded) {
-                    console.error('NomNoml load timeout');
-                    this.isLoading = false;
-                    this.renderError('NomNoml library timeout');
-                }
-            }, 10000);
-            
-        } catch (error) {
-            console.error('Error loading NomNoml:', error);
-            this.isLoading = false;
-            this.renderError(`Error loading NomNoml: ${error.message}`);
-        }
-    }
-
     updated(changedProps) {
-        console.log('Visualizer updated', changedProps);
-        if (!this.hasRendered && !this.isLoading && this.nomnomlLoaded && this.nomnomlContainer) {
-            console.log('All conditions met, updating diagram');
+        const pipelineChanged = changedProps.has('pipeline') || changedProps.has('chunks');
+        this.nomnomlContainer = this.renderRoot.querySelector('.nomnoml-container');
+        
+        if (this.nomnomlContainer && pipelineChanged) {
             this.updateDiagram();
         }
     }
 
     render() {
-        if (this.isLoading) {
+        if (!this.pipeline) {
             return html`
                 <div class="visualizer-container">
-                    <div class="loading">Loading NomNoml diagram...</div>
+                    <div class="error">No pipeline data available</div>
                 </div>
             `;
         }
 
+        const transform = `translate(${this.panX}px, ${this.panY}px) scale(${this.scale})`;
+        
         return html`
             <div class="visualizer-container">
                 <div class="controls">
+                    <button class="control-btn" @click="${() => this.zoomIn()}">+</button>
+                    <button class="control-btn" @click="${() => this.zoomOut()}">-</button>
+                    <button class="control-btn" @click="${() => this.resetView()}">Reset</button>
                     <button class="control-btn" @click="${this.updateDiagram}">Refresh</button>
                 </div>
                 
-                <div class="nomnoml-container" ref="${(el) => {
-                    this.nomnomlContainer = el;
-                    if (el && !this.isLoading && this.nomnomlLoaded && !this.hasRendered) {
-                        console.log('NomNoml container available, rendering diagram');
-                        this.updateDiagram();
-                    }
-                }}"></div>
-                
-                <div class="legend">
-                    <div class="legend-item">
-                        <div class="legend-color chunk-user"></div>
-                        <span>User Chunk</span>
-                    </div>
-                    <div class="legend-item">
-                        <div class="legend-color chunk-assistant"></div>
-                        <span>Assistant Chunk</span>
-                    </div>
-                    <div class="legend-item">
-                        <div class="legend-color chunk-system"></div>
-                        <span>System Chunk</span>
-                    </div>
-                    <div class="legend-item">
-                        <div class="legend-color chunk-web"></div>
-                        <span>Web Chunk</span>
-                    </div>
-                    <div class="legend-item">
-                        <div class="legend-color chunk-trusted"></div>
-                        <span>Trusted Chunk</span>
-                    </div>
-                    <div class="legend-item">
-                        <div class="legend-color chunk-untrusted"></div>
-                        <span>Untrusted Chunk</span>
-                    </div>
+                <div class="canvas-wrapper" 
+                     @wheel="${this.handleWheel}"
+                     @mousedown="${this.handleMouseDown}"
+                     @mousemove="${this.handleMouseMove}"
+                     @mouseup="${this.handleMouseUp}"
+                     @mouseleave="${this.handleMouseUp}">
+                    <div class="nomnoml-container" style="transform: ${transform}"></div>
                 </div>
+                
+                <div class="zoom-info">${Math.round(this.scale * 100)}%</div>
             </div>
         `;
     }
 
     updateDiagram() {
-        if (this.isLoading || !this.nomnomlLoaded) {
-            console.log('Skipping diagram update - loading or NomNoml not available');
+        if (!window.nomnoml) {
+            this.renderError('NomNoml library not loaded');
             return;
         }
 
-        if (!this.nomnomlContainer) {
-            if (!this.isRendering) {
-                this.isRendering = true;
-                setTimeout(() => {
-                    this.isRendering = false;
-                    if (!this.hasRendered) {
-                        this.updateDiagram();
-                    }
-                }, 100);
-            }
-            return;
-        }
-
-        if (this.isRendering) {
+        this.nomnomlContainer = this.renderRoot.querySelector('.nomnoml-container');
+        if (!this.nomnomlContainer || this.isRendering) {
             return;
         }
 
         this.isRendering = true;
         try {
-            console.log('Rendering diagram with pipeline:', this.pipeline);
             const noml = this.generateNoml();
-            console.log('Generated Noml:', noml);
             const svg = window.nomnoml.renderSvg(noml);
-            console.log('Rendered SVG length:', svg.length);
             this.nomnomlContainer.innerHTML = svg;
             this.hasRendered = true;
-            console.log('Diagram rendered successfully');
         } catch (error) {
-            console.error('Error rendering diagram:', error);
+            console.error('[NOMNOML] Error:', error);
             this.renderError(`Error rendering diagram: ${error.message}`);
         } finally {
             this.isRendering = false;
@@ -324,15 +236,9 @@ class RxMarblesVisualizer extends LitElement {
     }
 
     renderError(message) {
-        if (!this.nomnomlContainer) {
-            console.warn('Container not available for error rendering');
-            return;
+        if (this.nomnomlContainer) {
+            this.nomnomlContainer.innerHTML = `<div class="error">${message}</div>`;
         }
-        this.nomnomlContainer.innerHTML = `
-            <div style="display: flex; justify-content: center; align-items: center; height: 400px; color: #ef4444;">
-                ${message}
-            </div>
-        `;
     }
 
     generateNoml() {
@@ -341,55 +247,87 @@ class RxMarblesVisualizer extends LitElement {
         }
 
         const pipeline = this.pipeline;
-        let noml = `
-            #arrowSize: 1
-            #bendSize: 0.3
-            #direction: right
-            #gutter: 10
-            #edgeMargin: 0
-            #edges: hard
-            #background: ${this.theme === 'dark' ? '#1f2937' : '#ffffff'}
-            #fill: ${this.theme === 'dark' ? '#374151' : '#f3f4f6'}
-            #stroke: ${this.theme === 'dark' ? '#9ca3af' : '#374151'}
-            #textColor: ${this.theme === 'dark' ? '#f9fafb' : '#1f2937'}
-            #font: Calibri
-            #fontSize: 12
-            #leading: 1.2
-            #title: ${pipeline.name || 'Unknown Pipeline'}
-            
-            [inputStream] -> `;
+        
+        // Config directives (each on its own line)
+        const config = [
+            '#arrowSize: 1',
+            '#bendSize: 0.3',
+            '#direction: down',
+            '#gutter: 10',
+            '#edgeMargin: 0',
+            '#edges: hard',
+            `#background: ${this.theme === 'dark' ? '#1f2937' : '#ffffff'}`,
+            `#fill: ${this.theme === 'dark' ? '#374151' : '#f3f4f6'}`,
+            `#stroke: ${this.theme === 'dark' ? '#9ca3af' : '#374151'}`,
+            `#textColor: ${this.theme === 'dark' ? '#f9fafb' : '#1f2937'}`,
+            '#font: Calibri',
+            '#fontSize: 12',
+            '#leading: 1.2',
+            `#title: ${(pipeline.name || 'Unknown Pipeline').replace(/[[\]#|]/g, ' ')}`
+        ];
 
+        // Build the pipeline diagram
+        const nodes = ['[inputStream]'];
         const operators = pipeline.operators || [];
         
         if (operators.length === 0) {
-            noml += '[empty] -> [outputStream]';
+            nodes.push('[empty]');
         } else {
-            operators.forEach((op, index) => {
-                const opName = this.sanitizeNoml(op.name);
-                const opType = this.sanitizeNoml(op.type || '');
-                const opDesc = this.sanitizeNoml(op.description || '');
-                
-                noml += `[${opName}
-${opType}
-${opDesc}]`;
-                
-                if (index < operators.length - 1) {
-                    noml += ' -> ';
-                } else {
-                    noml += ' -> [outputStream]';
-                }
+            operators.forEach((op) => {
+                const parts = [op.name, op.type || '', op.description || ''].filter(Boolean);
+                nodes.push(`[${parts.join(' - ')}]`);
             });
         }
-
-        return noml;
+        
+        nodes.push('[outputStream]');
+        
+        // Config on separate lines, then the diagram
+        const diagram = [];
+        for (let i = 0; i < nodes.length - 1; i++) {
+            diagram.push(nodes[i] + ' -> ' + nodes[i + 1]);
+        }
+        return config.join('\n') + '\n\n' + diagram.join('\n');
     }
 
-    sanitizeNoml(text) {
-        return text
-            .replace(/\\/g, '\\\\')
-            .replace(/\]/g, '\\]')
-            .replace(/\[/g, '\\[')
-            .replace(/\#/g, '\\#');
+    zoomIn() {
+        this.scale = Math.min(this.scale * 1.2, 5);
+    }
+
+    zoomOut() {
+        this.scale = Math.max(this.scale / 1.2, 0.2);
+    }
+
+    resetView() {
+        this.scale = 1;
+        this.panX = 0;
+        this.panY = 0;
+    }
+
+    handleWheel(e) {
+        e.preventDefault();
+        const delta = e.deltaY > 0 ? 0.9 : 1.1;
+        this.scale = Math.max(0.2, Math.min(5, this.scale * delta));
+    }
+
+    handleMouseDown(e) {
+        this.isDragging = true;
+        this.lastMouseX = e.clientX;
+        this.lastMouseY = e.clientY;
+    }
+
+    handleMouseMove(e) {
+        if (!this.isDragging) return;
+        e.preventDefault();
+        const dx = e.clientX - this.lastMouseX;
+        const dy = e.clientY - this.lastMouseY;
+        this.panX += dx;
+        this.panY += dy;
+        this.lastMouseX = e.clientX;
+        this.lastMouseY = e.clientY;
+    }
+
+    handleMouseUp() {
+        this.isDragging = false;
     }
 }
 

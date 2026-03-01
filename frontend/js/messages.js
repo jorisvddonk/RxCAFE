@@ -80,13 +80,19 @@ export class MessagesManager {
         const vizEl = document.createElement('rx-message-visualization');
         this.chat._elCounter++;
         vizEl.dataset.elId = this.chat._elCounter;
-        vizEl.chunkId = chunk.id;
-        vizEl.agentName = chunk.annotations['visualizer.agent'];
-        vizEl.pipeline = chunk.annotations['visualizer.pipeline'];
-        vizEl.chunks = this.chat.rawChunks;
-        
-        vizEl.addEventListener('contextmenu', (e) => this.chat.showContextMenu(e, chunk.id));
-        
+
+        // Store data on element immediately (before custom element upgrade)
+        vizEl._initialData = {
+            chunkId: chunk.id,
+            agentName: chunk.annotations?.['visualizer.agent'] || 'Unknown',
+            pipeline: chunk.annotations?.['visualizer.pipeline'],
+            chunks: this.chat.rawChunks
+        };
+
+        vizEl.addEventListener('viz-contextmenu', (e) => {
+            this.chat.showContextMenu(e.detail.originalEvent, e.detail.chunkId);
+        });
+
         this.chat.messagesEl.appendChild(vizEl);
         this.chat.chunkElements.set(chunk.id, vizEl);
         scrollToBottom(this.chat.messagesEl);
