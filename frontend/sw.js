@@ -27,7 +27,8 @@ const STATIC_ASSETS = [
   '/widgets/rx-message-audio.js',
   '/widgets/rx-message-web.js',
   '/widgets/rx-message-tool.js',
-  '/widgets/rx-message-system.js'
+  '/widgets/rx-message-system.js',
+  '/widgets/rx-message-visualization.js'
 ];
 
 function fetchWithTimeout(request, timeout = 5000) {

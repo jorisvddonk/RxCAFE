@@ -7,6 +7,7 @@ import { RxMessageAudio } from '../widgets/rx-message-audio.js';
 import { RxMessageWeb } from '../widgets/rx-message-web.js';
 import { RxMessageTool } from '../widgets/rx-message-tool.js';
 import { RxMessageSystem } from '../widgets/rx-message-system.js';
+import { RxMessageVisualization } from '../widgets/rx-message-visualization.js';
 
 export class MessagesManager {
     constructor(chat) {
@@ -76,52 +77,18 @@ export class MessagesManager {
     }
 
     addVisualizationMessage(chunk) {
-        const messageEl = document.createElement('div');
+        const vizEl = document.createElement('rx-message-visualization');
         this.chat._elCounter++;
-        messageEl.dataset.elId = this.chat._elCounter;
-        messageEl.dataset.chunkId = chunk.id;
-        messageEl.className = 'message assistant visualization';
+        vizEl.dataset.elId = this.chat._elCounter;
+        vizEl.chunkId = chunk.id;
+        vizEl.agentName = chunk.annotations['visualizer.agent'];
+        vizEl.pipeline = chunk.annotations['visualizer.pipeline'];
+        vizEl.chunks = this.chat.rawChunks;
         
-        const contentEl = document.createElement('div');
-        contentEl.className = 'message-content';
+        vizEl.addEventListener('contextmenu', (e) => this.chat.showContextMenu(e, chunk.id));
         
-        const headerEl = document.createElement('div');
-        headerEl.className = 'visualization-header';
-        
-        const iconSpan = document.createElement('span');
-        iconSpan.className = 'visualization-icon';
-        iconSpan.textContent = '📊';
-        
-        const titleSpan = document.createElement('span');
-        titleSpan.className = 'visualization-title';
-        titleSpan.textContent = `RxMarbles Visualization: ${chunk.annotations['visualizer.agent']}`;
-        
-        headerEl.appendChild(iconSpan);
-        headerEl.appendChild(titleSpan);
-        contentEl.appendChild(headerEl);
-        
-        const vizContainer = document.createElement('div');
-        vizContainer.className = 'visualization-container';
-        vizContainer.style.cssText = `
-            width: 100%;
-            height: 400px;
-            margin-top: 0.5rem;
-            border-radius: 0.5rem;
-            overflow: hidden;
-        `;
-        
-        const visualizer = document.createElement('rx-marbles-visualizer');
-        visualizer.pipeline = chunk.annotations['visualizer.pipeline'];
-        visualizer.chunks = this.chat.rawChunks;
-        vizContainer.appendChild(visualizer);
-        
-        contentEl.appendChild(vizContainer);
-        messageEl.appendChild(contentEl);
-        
-        messageEl.addEventListener('contextmenu', (e) => this.chat.showContextMenu(e, chunk.id));
-        
-        this.chat.messagesEl.appendChild(messageEl);
-        this.chat.chunkElements.set(chunk.id, messageEl);
+        this.chat.messagesEl.appendChild(vizEl);
+        this.chat.chunkElements.set(chunk.id, vizEl);
         scrollToBottom(this.chat.messagesEl);
     }
 
