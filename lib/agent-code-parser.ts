@@ -223,19 +223,38 @@ export function parseFilter(args: string): ParsedOperator {
   if (arrowMatch) {
     const condition = arrowMatch[1].trim();
 
+    // Check for combined conditions
+    const hasContentType = condition.includes('contentType');
+    const hasTrust = condition.includes('trust');
+    const hasChatRole = condition.includes('chat.role');
+    const conditionCount = [hasContentType, hasTrust, hasChatRole].filter(Boolean).length;
+
     // Parse common filter patterns
-    if (condition.includes('contentType')) {
+    if (hasContentType) {
       const typeMatch = condition.match(/contentType\s*===?\s*['"]([^'"]+)['"]/);
       if (typeMatch) {
+        const baseDesc = `Only ${typeMatch[1]} content`;
+        // If combined with role filter
+        if (hasChatRole) {
+          const roleMatch = condition.match(/chat\.role\s*===?\s*['"]([^'"]+)['"]/);
+          if (roleMatch) {
+            return {
+              name: 'filter',
+              type: 'Combined Filter',
+              description: `${baseDesc} from ${roleMatch[1]}`
+            };
+          }
+        }
+        // Single condition or other combinations - still return type filter
         return {
           name: 'filter',
-          type: 'Type Filter',
-          description: `Only ${typeMatch[1]} content`
+          type: conditionCount > 1 ? 'Combined Filter' : 'Type Filter',
+          description: baseDesc
         };
       }
     }
 
-    if (condition.includes('trust')) {
+    if (hasTrust) {
       return {
         name: 'filter',
         type: 'Security Filter',
@@ -243,7 +262,7 @@ export function parseFilter(args: string): ParsedOperator {
       };
     }
 
-    if (condition.includes('chat.role')) {
+    if (hasChatRole) {
       const roleMatch = condition.match(/chat\.role\s*===?\s*['"]([^'"]+)['"]/);
       if (roleMatch) {
         return {
@@ -342,6 +361,21 @@ export function parseMapOperator(funcName: string, args: string): ParsedOperator
     };
   }
 
+  // Check for direct evaluator function calls (detectToolCalls, executeTools, etc.)
+  // Match both empty args func() and with args func({ ... })
+  const directEvaluatorMatch = cleanArgs.match(/^(\w+)\s*\(/);
+  if (directEvaluatorMatch) {
+    const calledFunc = directEvaluatorMatch[1];
+    const description = getEvaluatorDescription(calledFunc);
+    if (description !== calledFunc) {
+      return {
+        name: calledFunc,
+        type: 'Custom Evaluator',
+        description
+      };
+    }
+  }
+
   // Check for session calls
   if (cleanArgs.includes('session.')) {
     const sessionMatch = cleanArgs.match(/session\.(\w+)/);
@@ -398,6 +432,7 @@ export function getEvaluatorDescription(name: string): string {
     parseMarkdownForVoice: 'Parses markdown for voice output',
     generateVoice: 'Generates voice audio',
     analyzeSentiment: 'Analyzes sentiment',
+    detectToolCalls: 'Detects tool calls',
     detectTools: 'Detects tool calls',
     executeTools: 'Executes tools',
     createEvaluator: 'Creates LLM evaluator',
@@ -405,6 +440,11 @@ export function getEvaluatorDescription(name: string): string {
     completeTurnWithLLM: 'LLM response generation',
     processWithEvaluator: 'Processes with evaluator'
   };
+
+  // Check for exact match first
+  if (descriptions[name]) {
+    return descriptions[name];
+  }
 
   // Check for partial matches
   for (const [key, desc] of Object.entries(descriptions)) {
