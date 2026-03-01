@@ -297,6 +297,7 @@ function extractLargestCodeBlock(text: string): string {
 function analyzeAgentPipeline(code: string): any {
   const pipeline: any = {
     name: 'Unknown Pipeline',
+    description: '',
     operators: [],
     sourceCode: code
   };
@@ -307,30 +308,342 @@ function analyzeAgentPipeline(code: string): any {
     pipeline.name = nameMatch[1];
   }
   
-  // Look for pipe() operators - fix lazy matching issue
-  const pipeMatch = code.match(/pipe\(([\s\S]*?)\)\.subscribe/);
+  // Extract description from JSDoc or agent definition
+  const descMatch = code.match(/description:\s*['"]([^'"]+)['"]/);
+  if (descMatch) {
+    pipeline.description = descMatch[1];
+  }
+  
+  // Parse the pipe chain to extract meaningful operations
+  const pipeMatch = code.match(/\.pipe\(([\s\S]*?)\)\s*\.subscribe/);
   if (pipeMatch) {
     const pipeContent = pipeMatch[1];
-    
-    const operators = [];
-    
-    // Check for each operator type
-    ['filter', 'map', 'mergeMap', 'catchError', 'debounceTime', 'distinctUntilChanged', 'tap', 'switchMap'].forEach(opName => {
-      const pattern = new RegExp(`\\b${opName}\\b`, 'g');
-      let match;
-      while ((match = pattern.exec(pipeContent)) !== null) {
-        operators.push({
-          name: opName,
-          type: 'RxJS Operator',
-          description: getOperatorDescription(opName)
-        });
-      }
-    });
-    
+    const operators = parsePipeContent(pipeContent);
     pipeline.operators = operators;
   }
   
   return pipeline;
+}
+
+/**
+ * Parse pipe content to extract meaningful operations
+ */
+function parsePipeContent(content: string): any[] {
+  const operators = [];
+  
+  // Split by top-level commas (not inside parentheses)
+  const parts = splitPipeParts(content);
+  
+  for (const part of parts) {
+    const op = parseOperator(part.trim());
+    if (op) {
+      operators.push(op);
+    }
+  }
+  
+  return operators;
+}
+
+/**
+ * Split pipe content by top-level commas
+ */
+function splitPipeParts(content: string): string[] {
+  const parts = [];
+  let depth = 0;
+  let current = '';
+  
+  for (const char of content) {
+    if (char === '(' || char === '[' || char === '{') {
+      depth++;
+    } else if (char === ')' || char === ']' || char === '}') {
+      depth--;
+    } else if (char === ',' && depth === 0) {
+      parts.push(current);
+      current = '';
+      continue;
+    }
+    current += char;
+  }
+  
+  if (current.trim()) {
+    parts.push(current);
+  }
+  
+  return parts;
+}
+
+/**
+ * Parse a single operator call
+ */
+function parseOperator(part: string): any | null {
+  part = part.trim();
+  
+  // Skip subscribe and other terminal operations
+  if (part.startsWith('subscribe') || part.startsWith('catchError')) {
+    return null;
+  }
+  
+  // Extract function calls like filter(...), map(...), mergeMap(...)
+  const funcMatch = part.match(/^(\w+)\s*\((.*)\)$/s);
+  if (!funcMatch) {
+    // Check for custom evaluators passed directly
+    if (part.match(/^[a-zA-Z_][a-zA-Z0-9_]*$/)) {
+      return {
+        name: part,
+        type: 'Custom Evaluator',
+        description: getEvaluatorDescription(part)
+      };
+    }
+    return null;
+  }
+  
+  const [, funcName, args] = funcMatch;
+  
+  // Parse based on operator type
+  switch (funcName) {
+    case 'filter':
+      return parseFilter(args);
+    case 'map':
+      return parseMap(args);
+    case 'mergeMap':
+    case 'switchMap':
+    case 'concatMap':
+      return parseMapOperator(funcName, args);
+    case 'tap':
+      return parseTap(args);
+    case 'debounceTime':
+    case 'throttleTime':
+      return {
+        name: funcName,
+        type: 'Timing Control',
+        description: `Waits ${args}ms before processing`
+      };
+    case 'distinctUntilChanged':
+      return {
+        name: funcName,
+        type: 'Deduplication',
+        description: 'Ignores consecutive duplicate values'
+      };
+    default:
+      // Check if it's a custom evaluator function
+      if (args === '' || args === 'session') {
+        return {
+          name: funcName,
+          type: 'Custom Evaluator',
+          description: getEvaluatorDescription(funcName)
+        };
+      }
+      return {
+        name: funcName,
+        type: 'RxJS Operator',
+        description: getOperatorDescription(funcName)
+      };
+  }
+}
+
+/**
+ * Parse filter operator to extract condition
+ */
+function parseFilter(args: string): any {
+  // Clean up the arguments
+  const cleanArgs = args.replace(/\s+/g, ' ').trim();
+  
+  // Extract condition from arrow function
+  const arrowMatch = cleanArgs.match(/\([^)]*\)\s*=>\s*(.+)/);
+  if (arrowMatch) {
+    const condition = arrowMatch[1].trim();
+    
+    // Parse common filter patterns
+    if (condition.includes('contentType')) {
+      const typeMatch = condition.match(/contentType\s*===?\s*['"]([^'"]+)['"]/);
+      if (typeMatch) {
+        return {
+          name: 'filter',
+          type: 'Type Filter',
+          description: `Only ${typeMatch[1]} content`
+        };
+      }
+    }
+    
+    if (condition.includes('trust')) {
+      return {
+        name: 'filter',
+        type: 'Security Filter',
+        description: 'Trusted content only'
+      };
+    }
+    
+    if (condition.includes('chat.role')) {
+      const roleMatch = condition.match(/chat\.role\s*===?\s*['"]([^'"]+)['"]/);
+      if (roleMatch) {
+        return {
+          name: 'filter',
+          type: 'Role Filter',
+          description: `Only ${roleMatch[1]} messages`
+        };
+      }
+    }
+    
+    // Generic filter
+    return {
+      name: 'filter',
+      type: 'Condition Filter',
+      description: condition.length > 40 ? condition.slice(0, 40) + '...' : condition
+    };
+  }
+  
+  return {
+    name: 'filter',
+    type: 'RxJS Operator',
+    description: 'Filters based on condition'
+  };
+}
+
+/**
+ * Parse map operator to extract transformation
+ */
+function parseMap(args: string): any {
+  const cleanArgs = args.replace(/\s+/g, ' ').trim();
+  
+  // Extract transformation from arrow function
+  const arrowMatch = cleanArgs.match(/\([^)]*\)\s*=>\s*(.+)/);
+  if (arrowMatch) {
+    const transform = arrowMatch[1].trim();
+    
+    // Parse common map patterns
+    if (transform.includes('annotateChunk')) {
+      const annotMatch = transform.match(/annotateChunk\([^,]+,\s*['"]([^'"]+)['"]/);
+      if (annotMatch) {
+        return {
+          name: 'map',
+          type: 'Annotation',
+          description: `Sets ${annotMatch[1]}`
+        };
+      }
+    }
+    
+    if (transform.includes('return')) {
+      const returnVal = transform.match(/return\s+(.+?);?$/);
+      if (returnVal) {
+        return {
+          name: 'map',
+          type: 'Transform',
+          description: returnVal[1].length > 40 ? returnVal[1].slice(0, 40) + '...' : returnVal[1]
+        };
+      }
+    }
+    
+    return {
+      name: 'map',
+      type: 'Transform',
+      description: transform.length > 40 ? transform.slice(0, 40) + '...' : transform
+    };
+  }
+  
+  return {
+    name: 'map',
+    type: 'RxJS Operator',
+    description: 'Transforms values'
+  };
+}
+
+/**
+ * Parse mergeMap/switchMap operators
+ */
+function parseMapOperator(funcName: string, args: string): any {
+  const cleanArgs = args.replace(/\s+/g, ' ').trim();
+  
+  // Check for completeTurnWithLLM
+  if (cleanArgs.includes('completeTurnWithLLM')) {
+    return {
+      name: funcName,
+      type: 'LLM Call',
+      description: 'Generates LLM response'
+    };
+  }
+  
+  // Check for evaluator calls
+  const evaluatorMatch = cleanArgs.match(/(create\w+Evaluator|processWithEvaluator|\w+Evaluator)/);
+  if (evaluatorMatch) {
+    return {
+      name: funcName,
+      type: 'Async Processing',
+      description: getEvaluatorDescription(evaluatorMatch[1])
+    };
+  }
+  
+  // Check for session calls
+  if (cleanArgs.includes('session.')) {
+    const sessionMatch = cleanArgs.match(/session\.(\w+)/);
+    if (sessionMatch) {
+      return {
+        name: funcName,
+        type: 'Session Operation',
+        description: `Uses ${sessionMatch[1]}`
+      };
+    }
+  }
+  
+  return {
+    name: funcName,
+    type: 'Async Transform',
+    description: 'Maps to async operation'
+  };
+}
+
+/**
+ * Parse tap operator (side effects)
+ */
+function parseTap(args: string): any {
+  const cleanArgs = args.replace(/\s+/g, ' ').trim();
+  
+  if (cleanArgs.includes('outputStream')) {
+    return {
+      name: 'tap',
+      type: 'Side Effect',
+      description: 'Outputs to stream'
+    };
+  }
+  
+  if (cleanArgs.includes('errorStream')) {
+    return {
+      name: 'tap',
+      type: 'Error Handling',
+      description: 'Logs errors'
+    };
+  }
+  
+  return {
+    name: 'tap',
+      type: 'Side Effect',
+      description: 'Performs side effect'
+  };
+}
+
+/**
+ * Get description for evaluator functions
+ */
+function getEvaluatorDescription(name: string): string {
+  const descriptions: Record<string, string> = {
+    parseMarkdownForVoice: 'Parses markdown for voice output',
+    generateVoice: 'Generates voice audio',
+    analyzeSentiment: 'Analyzes sentiment',
+    detectTools: 'Detects tool calls',
+    executeTools: 'Executes tools',
+    createEvaluator: 'Creates LLM evaluator',
+    createLLMChunkEvaluator: 'LLM completion',
+    completeTurnWithLLM: 'LLM response generation',
+    processWithEvaluator: 'Processes with evaluator'
+  };
+  
+  // Check for partial matches
+  for (const [key, desc] of Object.entries(descriptions)) {
+    if (name.toLowerCase().includes(key.toLowerCase())) {
+      return desc;
+    }
+  }
+  
+  return name;
 }
 
 /**

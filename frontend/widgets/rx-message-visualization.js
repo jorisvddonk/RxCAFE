@@ -47,6 +47,12 @@ export class RxMessageVisualization extends LitElement {
       color: #06b6d4;
     }
     
+    .visualization-desc {
+      font-size: 0.75rem;
+      color: var(--text-secondary, #6b7280);
+      margin-top: 0.125rem;
+    }
+    
     .visualization-container {
       width: 100%;
       min-height: 300px;
@@ -82,6 +88,10 @@ export class RxMessageVisualization extends LitElement {
       
       .visualization-title {
         color: #22d3ee;
+      }
+      
+      .visualization-desc {
+        color: #9ca3af;
       }
       
       .debug-info {
@@ -135,12 +145,17 @@ export class RxMessageVisualization extends LitElement {
 
   render() {
     const hasValidPipeline = this.pipeline && typeof this.pipeline === 'object' && this.pipeline.name;
+    const description = this.pipeline?.description;
+    const opCount = this.pipeline?.operators?.length || 0;
     
     return html`
       <div class="message" data-chunk-id=${this.chunkId} @contextmenu=${this._onContextMenu}>
         <div class="visualization-header">
           <span class="visualization-icon">📊</span>
-          <span class="visualization-title">RxMarbles Visualization: ${this.agentName || 'Unknown'}</span>
+          <div>
+            <div class="visualization-title">${this.agentName || 'Unknown Agent'}</div>
+            ${description ? html`<div class="visualization-desc">${description}</div>` : ''}
+          </div>
         </div>
         <div class="visualization-container">
           ${hasValidPipeline 

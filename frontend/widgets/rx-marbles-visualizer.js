@@ -267,26 +267,78 @@ class RxMarblesVisualizer extends LitElement {
         ];
 
         // Build the pipeline diagram
-        const nodes = ['[inputStream]'];
+        const nodes = [];
         const operators = pipeline.operators || [];
         
         if (operators.length === 0) {
             nodes.push('[empty]');
         } else {
             operators.forEach((op) => {
-                const parts = [op.name, op.type || '', op.description || ''].filter(Boolean);
-                nodes.push(`[${parts.join(' - ')}]`);
+                // Use nomnoml's multiline format with | separator
+                const label = this.formatOperatorLabel(op);
+                nodes.push(`[${label}]`);
             });
         }
         
-        nodes.push('[outputStream]');
-        
         // Config on separate lines, then the diagram
-        const diagram = [];
-        for (let i = 0; i < nodes.length - 1; i++) {
-            diagram.push(nodes[i] + ' -> ' + nodes[i + 1]);
+        const diagram = ['[inputStream]'];
+        
+        nodes.forEach((node) => {
+            diagram.push(node);
+        });
+        
+        diagram.push('[outputStream]');
+        
+        // Connect nodes with arrows
+        const connections = [];
+        for (let i = 0; i < diagram.length - 1; i++) {
+            connections.push(diagram[i] + ' -> ' + diagram[i + 1]);
         }
-        return config.join('\n') + '\n\n' + diagram.join('\n');
+        
+        return config.join('\n') + '\n\n' + connections.join('\n');
+    }
+
+    formatOperatorLabel(op) {
+        // Format as multiline: action|type|details
+        const parts = [];
+        
+        // Main action name
+        parts.push(op.name);
+        
+        // Type classification
+        if (op.type) {
+            parts.push(op.type);
+        }
+        
+        // Description/details
+        if (op.description) {
+            parts.push(op.description);
+        }
+        
+        // Join with nomnoml's multiline separator
+        return parts.join('|');
+    }
+
+    getOperatorColor(op) {
+        // Return color class based on operator type
+        const colorMap = {
+            'Type Filter': '#3b82f6',
+            'Security Filter': '#ef4444',
+            'Role Filter': '#8b5cf6',
+            'Condition Filter': '#64748b',
+            'Annotation': '#10b981',
+            'Transform': '#06b6d4',
+            'LLM Call': '#f59e0b',
+            'Async Processing': '#ec4899',
+            'Session Operation': '#6366f1',
+            'Side Effect': '#84cc16',
+            'Error Handling': '#dc2626',
+            'Timing Control': '#14b8a6',
+            'Deduplication': '#8b5cf6',
+            'Custom Evaluator': '#f97316'
+        };
+        
+        return colorMap[op.type] || null;
     }
 
     zoomIn() {
