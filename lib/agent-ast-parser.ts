@@ -79,6 +79,7 @@ function getEvaluatorDescription(name: string): string {
 // Track evaluator variables in scope
 class EvaluatorScope {
   private variables: Map<string, string> = new Map(); // varName -> evaluatorName
+  private arrays: Map<string, string[]> = new Map(); // varName -> array values
 
   addVariable(name: string, evaluatorName: string) {
     this.variables.set(name, evaluatorName);
@@ -90,6 +91,14 @@ class EvaluatorScope {
 
   hasVariable(name: string): boolean {
     return this.variables.has(name);
+  }
+
+  addArray(name: string, values: string[]) {
+    this.arrays.set(name, values);
+  }
+
+  getArray(name: string): string[] | undefined {
+    return this.arrays.get(name);
   }
 }
 
@@ -129,16 +138,30 @@ export function analyzeAgentPipeline(code: string): PipelineAnalysis {
     ts.forEachChild(node, visit);
   });
 
-  // First pass: find all evaluator variable assignments
+  // First pass: find all evaluator variable assignments and array declarations
   function findEvaluatorVariables(node: ts.Node) {
-    // const x = evaluatorName({...})
-    if (ts.isVariableDeclaration(node) && 
-        node.initializer && 
-        ts.isCallExpression(node.initializer)) {
-      const callName = node.initializer.expression.getText(sourceFile);
-      if (EVALUATOR_DESCRIPTIONS[callName]) {
-        const varName = node.name.getText(sourceFile);
-        scope.addVariable(varName, callName);
+    if (ts.isVariableDeclaration(node) && node.initializer) {
+      const varName = node.name.getText(sourceFile);
+      
+      // const x = evaluatorName({...})
+      if (ts.isCallExpression(node.initializer)) {
+        const callName = node.initializer.expression.getText(sourceFile);
+        if (EVALUATOR_DESCRIPTIONS[callName]) {
+          scope.addVariable(varName, callName);
+        }
+      }
+      
+      // const x = ['a', 'b', 'c'] - collect array literals
+      if (ts.isArrayLiteralExpression(node.initializer)) {
+        const values: string[] = [];
+        for (const element of node.initializer.elements) {
+          if (ts.isStringLiteral(element)) {
+            values.push(element.text);
+          }
+        }
+        if (values.length > 0) {
+          scope.addArray(varName, values);
+        }
       }
     }
     ts.forEachChild(node, findEvaluatorVariables);
@@ -257,19 +280,20 @@ function parseOperator(
 }
 
 function parseMapOperator(
-  funcName: string, 
-  arg: ts.Node, 
+  funcName: string,
+  arg: ts.Node,
   sourceFile: ts.SourceFile,
   scope: EvaluatorScope
 ): ParsedOperator {
   const text = arg.getText(sourceFile);
   const foundEvaluators: string[] = [];
+  let toolsList: string[] | undefined;
 
   // Walk the AST to find all function calls
   function findCalls(node: ts.Node) {
     if (ts.isCallExpression(node)) {
       const callName = node.expression.getText(sourceFile);
-      
+
       // Check if this is a variable that holds an evaluator
       if (scope.hasVariable(callName)) {
         const evaluatorName = scope.getEvaluator(callName);
@@ -277,12 +301,38 @@ function parseMapOperator(
           foundEvaluators.push(evaluatorName);
         }
       }
-      
+
       // Check for direct evaluator calls
       if (EVALUATOR_DESCRIPTIONS[callName]) {
         foundEvaluators.push(callName);
+
+        // Special handling for executeTools - extract the tools list
+        if (callName === 'executeTools' && node.arguments.length > 0) {
+          const firstArg = node.arguments[0];
+          if (ts.isObjectLiteralExpression(firstArg)) {
+            // Look for tools: property
+            for (const prop of firstArg.properties) {
+              if (ts.isPropertyAssignment(prop) && prop.name.getText(sourceFile) === 'tools') {
+                // Check if it's an identifier (reference to an array variable)
+                if (ts.isIdentifier(prop.initializer)) {
+                  const arrayName = prop.initializer.getText(sourceFile);
+                  toolsList = scope.getArray(arrayName);
+                }
+                // Check if it's a direct array literal
+                else if (ts.isArrayLiteralExpression(prop.initializer)) {
+                  toolsList = [];
+                  for (const element of prop.initializer.elements) {
+                    if (ts.isStringLiteral(element)) {
+                      toolsList.push(element.text);
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
       }
-      
+
       // Check for session.createEvaluator pattern
       if (callName.startsWith('session.')) {
         const method = callName.split('.')[1];
@@ -313,10 +363,16 @@ function parseMapOperator(
   const unique = [...new Set(foundEvaluators)];
   const descriptions = unique.map(e => getEvaluatorDescription(e));
 
+  // Add tools list to description if found
+  let description = descriptions.join(', ');
+  if (toolsList && toolsList.length > 0) {
+    description += ` [tools: ${toolsList.join(', ')}]`;
+  }
+
   return {
     name: funcName,
     type: foundEvaluators.includes('completeTurnWithLLM') && unique.length === 1 ? 'LLM Call' : 'Custom Evaluator',
-    description: descriptions.join(', ')
+    description
   };
 }
 

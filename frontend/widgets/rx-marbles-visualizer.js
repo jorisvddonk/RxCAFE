@@ -325,20 +325,39 @@ class RxMarblesVisualizer extends LitElement {
     formatOperatorLabel(op) {
         // Format as multiline: action|type|details
         const parts = [];
-        
+
         // Main action name
         parts.push(op.name);
-        
+
         // Type classification
         if (op.type) {
             parts.push(op.type);
         }
-        
-        // Description/details
+
+        // Description/details - handle tools list specially
         if (op.description) {
-            parts.push(op.description);
+            // Check if description has tools list
+            const toolsMatch = op.description.match(/(.*?)\s*\[tools:\s*(.*?)\s*\]$/);
+            if (toolsMatch) {
+                // Add main description
+                const mainDesc = toolsMatch[1].trim();
+                if (mainDesc) {
+                    parts.push(mainDesc);
+                }
+                // Add tools on separate line - show all tools
+                const tools = toolsMatch[2].split(',').map(t => t.trim());
+                parts.push('tools: ' + tools.join(', '));
+            } else {
+                // Regular description - truncate if too long
+                const maxLen = 40;
+                if (op.description.length > maxLen) {
+                    parts.push(op.description.slice(0, maxLen) + '...');
+                } else {
+                    parts.push(op.description);
+                }
+            }
         }
-        
+
         // Join with nomnoml's multiline separator
         return parts.join('|');
     }
