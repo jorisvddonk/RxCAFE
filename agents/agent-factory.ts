@@ -45,6 +45,7 @@ Create new ObservableCAFE agents using natural language descriptions!
 - \`!show <name>\` - Display agent source code
 - \`!edit <name> <instructions>\` - Edit an existing agent
 - \`!delete <name>\` - Delete a generated agent
+- \`!visualize <name>\` - Visualize agent pipeline using RxMarbles-style diagram
 
 **Example:**
 \`!create weather-agent An agent that fetches weather data from the open-meteo.com api (example URL: https://api.open-meteo.com/v1/forecast?latitude=59.3345&longitude=18.0632&current_weather=true)\`
@@ -288,6 +289,66 @@ function extractLargestCodeBlock(text: string): string {
     .replace(/^(Here is|Here's|The following|This is|Below is)[^\n]*/i, '')
     .replace(/\n\n(Note:|Explanation:|This code|This agent)[^]*/i, '')
     .trim();
+}
+
+/**
+ * Analyze agent code to extract pipeline information for visualization
+ */
+function analyzeAgentPipeline(code: string): any {
+  const pipeline: any = {
+    name: 'Unknown Pipeline',
+    operators: [],
+    sourceCode: code
+  };
+  
+  // Extract agent name from export statement
+  const nameMatch = code.match(/export\s+const\s+(\w+):\s*AgentDefinition/);
+  if (nameMatch) {
+    pipeline.name = nameMatch[1];
+  }
+  
+  // Look for pipe() operators - fix lazy matching issue
+  const pipeMatch = code.match(/pipe\(([\s\S]*?)\)\.subscribe/);
+  if (pipeMatch) {
+    const pipeContent = pipeMatch[1];
+    
+    const operators = [];
+    
+    // Check for each operator type
+    ['filter', 'map', 'mergeMap', 'catchError', 'debounceTime', 'distinctUntilChanged', 'tap', 'switchMap'].forEach(opName => {
+      const pattern = new RegExp(`\\b${opName}\\b`, 'g');
+      let match;
+      while ((match = pattern.exec(pipeContent)) !== null) {
+        operators.push({
+          name: opName,
+          type: 'RxJS Operator',
+          description: getOperatorDescription(opName)
+        });
+      }
+    });
+    
+    pipeline.operators = operators;
+  }
+  
+  return pipeline;
+}
+
+/**
+ * Get descriptions for common RxJS operators
+ */
+function getOperatorDescription(op: string): string {
+  const descriptions: Record<string, string> = {
+    filter: 'Filters chunks based on condition',
+    map: 'Transforms chunks',
+    mergeMap: 'Maps to observables, then flattens',
+    catchError: 'Handles errors',
+    debounceTime: 'Debounces chunks',
+    distinctUntilChanged: 'Filters duplicates',
+    tap: 'Performs side effects',
+    switchMap: 'Maps to observable, switching to new'
+  };
+  
+  return descriptions[op] || 'RxJS Operator';
 }
 
 async function generateAgentCode(
@@ -765,6 +826,41 @@ Provide the complete updated TypeScript code.`;
               { 'chat.role': 'assistant', 'parsers.markdown.enabled': true }
             );
           }
+        }
+        
+        if (text.startsWith('!visualize ')) {
+          const name = text.slice(11).trim();
+          
+          if (!name) {
+            return createTextChunk(
+              'Usage: `!visualize <name>`',
+              'agent-factory',
+              { 'chat.role': 'assistant', 'parsers.markdown.enabled': true }
+            );
+          }
+          
+          const code = readAgentFile(name);
+          if (code === null) {
+            return createTextChunk(
+              `Agent "${name}" not found. Use \`!list\` to see available agents.`,
+              'agent-factory',
+              { 'chat.role': 'assistant', 'parsers.markdown.enabled': true }
+            );
+          }
+          
+          // Analyze the agent code to extract pipeline information
+          const pipeline = analyzeAgentPipeline(code);
+          
+          // Create a visualization chunk with pipeline data
+          return createNullChunk(
+            'agent-factory',
+            { 
+              'visualizer.type': 'rx-marbles',
+              'visualizer.agent': name,
+              'visualizer.pipeline': pipeline,
+              'visualizer.code': code
+            }
+          );
         }
         
         // Check for pending creation with custom prompt

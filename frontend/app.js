@@ -809,10 +809,17 @@ class RXCafeChat {
         const isWeb = chunk.producer === 'com.rxcafe.web-fetch' || chunk.annotations?.['web.source-url'];
         const isSystem = role === 'system';
         const isTelegram = chunk.annotations?.['client.type'] === 'telegram';
+        const isVisualization = chunk.annotations?.['visualizer.type'] === 'rx-marbles';
         
         // Skip purely metadata chunks (like session naming) if they don't have a role
         if (!role && chunk.annotations?.['session.name']) {
             this.chunkElements.set(chunk.id, null); // Mark as processed
+            return;
+        }
+        
+        // Handle visualization chunks
+        if (isVisualization) {
+            this.addVisualizationMessage(chunk);
             return;
         }
 
@@ -863,6 +870,60 @@ class RXCafeChat {
                 }
             }
         }
+    }
+
+    addVisualizationMessage(chunk) {
+        const messageEl = document.createElement('div');
+        this._elCounter++;
+        messageEl.dataset.elId = this._elCounter;
+        messageEl.dataset.chunkId = chunk.id;
+        messageEl.className = 'message assistant visualization';
+        
+        const contentEl = document.createElement('div');
+        contentEl.className = 'message-content';
+        
+        const headerEl = document.createElement('div');
+        headerEl.className = 'visualization-header';
+        
+        const iconSpan = document.createElement('span');
+        iconSpan.className = 'visualization-icon';
+        iconSpan.textContent = '📊';
+        
+        const titleSpan = document.createElement('span');
+        titleSpan.className = 'visualization-title';
+        titleSpan.textContent = `RxMarbles Visualization: ${chunk.annotations['visualizer.agent']}`;
+        
+        headerEl.appendChild(iconSpan);
+        headerEl.appendChild(titleSpan);
+        contentEl.appendChild(headerEl);
+        
+        // Create visualization container
+        const vizContainer = document.createElement('div');
+        vizContainer.className = 'visualization-container';
+        vizContainer.style.cssText = `
+            width: 100%;
+            height: 400px;
+            margin-top: 0.5rem;
+            border-radius: 0.5rem;
+            overflow: hidden;
+        `;
+        
+        // Add RxMarbles visualizer
+        const visualizer = document.createElement('rx-marbles-visualizer');
+        visualizer.pipeline = chunk.annotations['visualizer.pipeline'];
+        visualizer.chunks = this.rawChunks;
+        vizContainer.appendChild(visualizer);
+        
+        contentEl.appendChild(vizContainer);
+        
+        messageEl.appendChild(contentEl);
+        
+        // Right-click context menu
+        messageEl.addEventListener('contextmenu', (e) => this.showContextMenu(e, chunk.id));
+        
+        this.messagesEl.appendChild(messageEl);
+        this.chunkElements.set(chunk.id, messageEl);
+        this.scrollToBottom();
     }
 
     addTelegramLabel(messageEl) {
