@@ -11,6 +11,7 @@ import { GlobTool } from '../tools/glob.js';
 import { WebSearchTool } from '../tools/web-search.js';
 import { WebFetchTool } from '../tools/web-fetch.js';
 import { KnowledgeWriteTool, KnowledgeRetrieveTool, KnowledgeSearchTool, KnowledgeListTool } from '../tools/knowledgebase.js';
+import { gitTool } from '../tools/git.js';
 
 export interface Tool {
   name: string;
@@ -31,7 +32,8 @@ const ALL_TOOLS: Map<string, Tool> = new Map([
   ['knowledgeWrite', new KnowledgeWriteTool()],
   ['knowledgeRetrieve', new KnowledgeRetrieveTool()],
   ['knowledgeSearch', new KnowledgeSearchTool()],
-  ['knowledgeList', new KnowledgeListTool()]
+  ['knowledgeList', new KnowledgeListTool()],
+  ['git', gitTool]
 ]);
 
 export function getTool(name: string): Tool | undefined {
@@ -197,6 +199,11 @@ function formatToolResult(toolName: string, result: any): string {
       result.entries.map((e: any) => 
         `[#${e.id}] ${e.content}`
       ).join('\n');
+  }
+
+  if (toolName === 'git') {
+    if (result.stderr) return `Error: ${result.stderr}`;
+    return result.stdout || '(no output)';
   }
 
   return JSON.stringify(result, null, 2);
