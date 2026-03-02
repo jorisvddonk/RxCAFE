@@ -12,6 +12,17 @@ import { WebSearchTool } from '../tools/web-search.js';
 import { WebFetchTool } from '../tools/web-fetch.js';
 import { KnowledgeWriteTool, KnowledgeRetrieveTool, KnowledgeSearchTool, KnowledgeListTool } from '../tools/knowledgebase.js';
 import { gitTool } from '../tools/git.js';
+import {
+  SheetbotTool,
+  SheetbotGetSheetTool,
+  SheetbotListTasksTool,
+  SheetbotGetTaskTool,
+  SheetbotCreateTaskTool,
+  SheetbotDeleteTaskTool,
+  SheetbotListAgentsTool,
+  SheetbotListLibraryTool,
+  SHEETBOT_SYSTEM_PROMPT
+} from '../tools/sheetbot.js';
 
 export interface Tool {
   name: string;
@@ -33,7 +44,15 @@ const ALL_TOOLS: Map<string, Tool> = new Map([
   ['knowledgeRetrieve', new KnowledgeRetrieveTool()],
   ['knowledgeSearch', new KnowledgeSearchTool()],
   ['knowledgeList', new KnowledgeListTool()],
-  ['git', gitTool]
+  ['git', gitTool],
+  ['sheetbot_list_sheets', new SheetbotTool()],
+  ['sheetbot_get_sheet', new SheetbotGetSheetTool()],
+  ['sheetbot_list_tasks', new SheetbotListTasksTool()],
+  ['sheetbot_get_task', new SheetbotGetTaskTool()],
+  ['sheetbot_create_task', new SheetbotCreateTaskTool()],
+  ['sheetbot_delete_task', new SheetbotDeleteTaskTool()],
+  ['sheetbot_list_agents', new SheetbotListAgentsTool()],
+  ['sheetbot_list_library', new SheetbotListLibraryTool()]
 ]);
 
 export function getTool(name: string): Tool | undefined {
@@ -204,6 +223,68 @@ function formatToolResult(toolName: string, result: any): string {
   if (toolName === 'git') {
     if (result.stderr) return `Error: ${result.stderr}`;
     return result.stdout || '(no output)';
+  }
+
+  const sheetbotTools = ['sheetbot_list_sheets', 'sheetbot_get_sheet', 'sheetbot_list_tasks', 'sheetbot_get_task', 'sheetbot_create_task', 'sheetbot_delete_task', 'sheetbot_list_agents', 'sheetbot_list_library'];
+  if (sheetbotTools.includes(toolName)) {
+    if (result.error) return `Error: ${result.error}`;
+    
+    if (result.sheets) {
+      if (result.sheets.length === 0) return 'No sheets found';
+      return `Sheets (${result.count}):\n${result.sheets.join('\n')}`;
+    }
+    
+    if (result.columns) {
+      let output = `Sheet: ${result.sheet}\nColumns: ${result.columns.join(', ')}\nRows: ${result.rowCount}${result.truncated ? ' (showing first 20)' : ''}\n\n`;
+      result.rows.forEach((row: any, i: number) => {
+        output += `${i + 1}. ${JSON.stringify(row)}\n`;
+      });
+      return output;
+    }
+
+    if (result.scripts) {
+      if (result.scripts.length === 0) return 'No library scripts found';
+      let output = `Library (${result.count} scripts):\n\n`;
+      result.scripts.forEach((s: any) => {
+        output += `${s.name}\n  File: ${s.filename}\n`;
+        if (s.capabilitiesSchema) {
+          output += `  Capabilities: ${JSON.stringify(s.capabilitiesSchema)}\n`;
+        }
+        if (s.comments) {
+          output += `  ${s.comments.split('\n')[0]}\n`;
+        }
+        output += '\n';
+      });
+      return output;
+    }
+    
+    if (result.agents) {
+      let output = `Agents (${result.activeAgents} active, ${result.totalUniqueAgents} total):\n\n`;
+      result.agents.forEach((a: any) => {
+        output += `${a.id}\n  IP: ${a.ip}\n  Type: ${a.type}\n  Last seen: ${a.lastSeen}\n`;
+        if (a.capabilities) {
+          output += `  Capabilities: ${JSON.stringify(a.capabilities)}\n`;
+        }
+        output += '\n';
+      });
+      return output;
+    }
+    
+    if (result.tasks) {
+      if (result.tasks.length === 0) return 'No tasks found';
+      const lines = result.tasks.map((t: any) => 
+        `${t.id.substring(0, 8)}... ${t.status} ${t.name}`
+      );
+      return `Tasks (${result.count}):\n${lines.join('\n')}`;
+    }
+    
+    if (result.message) return result.message;
+    
+    if (result.id) {
+      return `Task ${result.id}\nName: ${result.name}\nStatus: ${result.status}`;
+    }
+    
+    return JSON.stringify(result, null, 2);
   }
 
   return JSON.stringify(result, null, 2);
