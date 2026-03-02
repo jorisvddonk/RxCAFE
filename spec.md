@@ -1,7 +1,7 @@
 ObservableCAFE: A Reactive Architecture for Chunk-Based Evaluation Pipelines
-====================================================================
+===================================================================
 
-Version 2.1
+Version 2.2
 
 1. Overview
 -----------
@@ -22,80 +22,140 @@ ObservableCAFE does not prescribe a specific runtime. It defines concepts and co
 
 ---
 
-2. Core Primitives
-------------------
+2. Core Concepts
+----------------
 
-### 2.1 Chunks
+### 2.1 What is a Chunk?
 
-A _chunk_ is the fundamental unit of data in ObservableCAFE.
+A **chunk** is the fundamental unit of data in ObservableCAFE. It's an immutable container that carries:
 
-Each chunk has:
+- **Content** - The actual data (text string, binary bytes, or nothing for metadata)
+- **Content type** - One of `text`, `binary`, or `null`
+- **Producer** - A fully qualified domain name identifying the source (e.g., `com.example.sentiment-analyzer`)
+- **Annotations** - Key-value metadata attached to the chunk
 
-- **Content type**: one of
-  - `text` - textual data
-  - `binary` - opaque bytes with a MIME type (e.g., images, audio)
-  - `null` - metadata marker with no content (used for state updates or signaling)
+Think of a chunk like a letter: it has content (the message), a type (what kind of letter), a return address (producer), and notes written on it (annotations).
 
-- **Producer identifier**: a fully qualified domain name (FQDN) indicating the origin (e.g., `com.example.sentiment-analyzer`)
+**Conceptually immutable:** Chunks should be treated as immutable - evaluators don't modify chunks, they produce *new* chunks with additional annotations. In RxJS terms, `mergeMap` transforms the upstream chunk into downstream chunks, effectively replacing it. This pattern ensures each processing stage works with its own copy.
 
-- **Content**: depending on type (`string`, `Uint8Array`, or `null`)
+**Null chunks** are special - they carry no content but are crucial for signaling. Use them for configuration changes, state updates, or flow control signals.
 
-- **Annotations**: key-value pairs where keys are FQDNs and values are JSON-compatible.
+### 2.2 What is an Evaluator?
 
-Chunks are **immutable**. Any conceptual modification produces a new chunk.
+An **evaluator** is a function that processes chunks and produces new chunks. It's the "worker" that transforms data as it flows through the pipeline.
 
-**Null Chunks for Metadata:**
-Null chunks are the recommended carrier for session-level state changes (e.g., renaming a session via a `session.name` annotation). They persist in history but are ignored by standard chat renderers.
+Evaluators come in two flavors:
 
-### 2.2 Annotations
+1. **LLM Evaluators** - Wrap interaction with language models, handling prompt construction, streaming token handling, and response parsing
+2. **Transform Evaluators** - Pure processing functions that modify or annotate chunks (e.g., sentiment analysis, translation, format conversion)
 
-Annotations attach metadata to chunks without modifying their content.
+Evaluators are typically implemented as async generators, yielding chunks as they're produced (important for streaming responses from LLMs).
 
-Properties:
-- Keys are FQDNs.
-- Values are JSON-compatible.
-- Annotations enable **context reduction**. Instead of passing full raw content to every stage, one evaluator parses content and emits a structured annotation for downstream consumption.
+### 2.3 What is an Agent?
 
-### 2.3 Streams
+An **agent** is a pipeline builder. It's not responsible for doing the actual work - instead, it orchestrates *what* happens to data by composing evaluators into a reactive pipeline.
 
-ObservableCAFE systems typically define three primary stream types:
+When a session starts, the agent's `initialize` method receives a session context with streams and configuration. The agent then:
+1. Subscribes to the input stream
+2. Pipes chunks through a chain of operators and evaluators
+3. Sends results to the output stream
 
-1. **Input Stream**: Receives external events (user messages, webhooks, timer ticks).
-2. **Output Stream**: The authoritative, append-only feed of all processed chunks. This stream is typically used for history persistence and UI rendering.
-3. **Error Stream**: A separate channel for exceptions and pipeline failures, ensuring UI stability.
+This separation is powerful: you can create entirely different behaviors just by wiring up different evaluators, without changing the agent's structure.
+
+### 2.4 What is a Pipeline?
+
+A **pipeline** is the reactive flow connecting input to output through operators and evaluators. Built using standard reactive stream operators:
+
+- `filter` - Pass only chunks matching a condition
+- `map` - Transform each chunk into another chunk
+- `mergeMap` - Transform each chunk into a stream of chunks (for async operations)
+- `catchError` - Handle errors without terminating the pipeline
+
+The pipeline is where declarativity shines: you describe *what* should happen (filter user messages, analyze sentiment, generate response) rather than *how* to implement each step.
+
+### 2.5 Streams
+
+ObservableCAFE defines three streams:
+
+1. **Input Stream** - The entry point for external events (user messages, webhooks, timer ticks, file uploads)
+2. **Output Stream** - The authoritative feed of processed chunks, used for history persistence and UI rendering
+3. **Error Stream** - A separate channel for exceptions, ensuring errors don't corrupt the main data flow
 
 ---
 
-3. Agents and Pipelines
------------------------
+3. Agents Deep Dive
+-------------------
 
-### 3.1 The Agent Pattern
+### 3.1 Agent Lifecycle
 
-An _Agent_ is a high-level orchestrator responsible for initializing a session's reactive pipeline.
+1. **Definition** - Agent is registered with a unique name and configuration schema
+2. **Initialization** - When a session starts, `initialize(session)` is called to build the pipeline
+3. **Operation** - Pipeline processes chunks until session ends
+4. **Destruction** - Optional `destroy(session)` cleanup (e.g., clearing intervals, closing connections)
 
-**Responsibilities:**
-- Create specialized evaluators (e.g., deterministic for analysis, creative for chat).
-- Subscribe to the `inputStream`.
-- Construct a pipeline using reactive operators (filter, map, mergeMap).
-- Pipe processed results to the `outputStream`.
+### 3.2 Agent Properties
 
-### 3.2 Higher-Order Evaluators (Processors)
+- **name** - Unique identifier (used as session ID for background agents)
+- **description** - Human-readable explanation of what the agent does
+- **startInBackground** - If true, agent auto-starts when server boots
+- **allowsReload** - Whether the agent can be hot-reloaded (default true; set false for stateful agents)
+- **persistsState** - Whether session history is saved to database (default true)
+- **configSchema** - JSON Schema defining what configuration the agent accepts
+- **initialize(session)** - Build the reactive pipeline
+- **destroy(session)** - Optional cleanup function
 
-To maintain clean and readable agent code, specialized logic should be encapsulated into **higher-order evaluator functions**.
+### 3.3 Session Context
 
-These functions:
-1. Accept the `AgentSessionContext` (allowing them to create their own specialized evaluators internally).
-2. Return a reactive operator (typically a function returning an `Observable<Chunk>`).
+When `initialize` runs, the agent receives a session context containing:
 
-**The "One-Liner" Goal:**
-Agents should read like a declarative list of operations:
-```javascript
-session.inputStream.pipe(
-  filter(isUserMessage),
-  mergeMap(analyzeSentiment(session)), // Encapsulated one-liner
-  mergeMap(translateTo(session, 'es')), // Reusable module
-  mergeMap(generateResponse(session))   // Core assistant logic
-).subscribe(chunk => session.outputStream.next(chunk));
+- **Streams**: `inputStream`, `outputStream`, `errorStream` for data flow
+- **history**: Array of all chunks processed so far
+- **config**: Server/agent configuration (backend, model, etc.)
+- **sessionConfig**: Runtime configuration passed when session was created
+- **systemPrompt**: The LLM system prompt
+- **createLLMChunkEvaluator(params?)**: Factory for creating LLM evaluators
+- **schedule(cronExpr, callback)**: For background agents to schedule tasks
+- **persistState() / loadState()**: For agents that manage persistent data
+
+### 3.4 Configuration
+
+Agents declare what configuration they need using JSON Schema (draft-07). This enables:
+- Runtime validation when sessions are created
+- Auto-generated UI forms
+- Documentation of available options
+
+Runtime configuration (backend, model, LLM parameters, system prompt) is stored as null chunks with `config.type: 'runtime'` annotation. This allows configuration to be:
+1. Persisted with the session
+2. Changed dynamically during a session
+3. Tracked in history
+
+### 3.5 Agent Examples
+
+**Simple chat agent:**
+```typescript
+initialize(session) {
+  session.inputStream.pipe(
+    filter(c => c.contentType === 'text'),
+    map(c => c.annotations['chat.role'] ? c : annotateChunk(c, 'chat.role', 'user')),
+    filter(c => !c.annotations['security.trust-level']?.trusted === false),
+    mergeMap(c => c.annotations['chat.role'] === 'user' 
+      ? completeTurnWithLLM(c, session.createLLMChunkEvaluator(), session) 
+      : [c]),
+    catchError(e => { session.errorStream.next(e); return EMPTY; })
+  ).subscribe(c => session.outputStream.next(c));
+}
+```
+
+**Background agent (periodic tasks):**
+```typescript
+startInBackground: true,
+persistsState: false,
+initialize(session) {
+  const id = setInterval(() => {
+    session.outputStream.next(createTextChunk(new Date().toLocaleTimeString(), 'time-ticker', { 'chat.role': 'assistant' }));
+  }, 2000);
+  session.pipelineSubscription = { unsubscribe: () => clearInterval(id) };
+}
 ```
 
 ---
@@ -103,48 +163,49 @@ session.inputStream.pipe(
 4. Multi-modal and Metadata Patterns
 ------------------------------------
 
-### 4.1 Binary Content Handling
+### 4.1 Binary Content
 
-Binary chunks enable multi-modal interactions (Image Generation, TTS, STT).
-- **MIME Types**: Must be specified in the chunk's content metadata.
-- **Rendering**: UIs should detect MIME types (e.g., `image/*`, `audio/*`) and provide appropriate playback components.
-- **Persistence**: Binary data should be Base64-encoded for JSON-based database storage and restored to `Uint8Array` upon loading.
+Binary chunks carry opaque data with a MIME type. This enables:
+- Image generation and display
+- Audio transcription and synthesis
+- File uploads and downloads
 
-### 4.2 State Management via History Scanning
+The same pipeline operators work with binary chunks - just filter by `contentType === 'binary'` and check the MIME type.
 
-Persistent state (like the "Name" of a session) should be derived from the `outputStream` history rather than separate database columns where possible.
+### 4.2 Annotations as Context Reduction
 
-**Pattern:** To find the current session name, scan the history chunks in reverse order and pick the value from the most recent chunk containing the `session.name` annotation. This ensures the history remains the single source of truth for the session state.
+Instead of reprocessing raw content at every stage, use annotations to communicate results:
 
----
-
-5. Implementation Guidance
----------------------------
-
-### 5.1 Ergonomic Evaluator Creation
-
-Systems should provide a `createLLMChunkEvaluator` utility that allows for easy overrides:
-```javascript
-// Inherit session defaults but force deterministic output
-const analyzer = session.createLLMChunkEvaluator({ temperature: 0, maxTokens: 100 });
+```
+User message → Sentiment evaluator → chunk with 'sentiment: positive' annotation
+                                        ↓
+                               Translation evaluator (reads annotation, not text)
+                                        ↓
+                               LLM (sees translated text + sentiment context)
 ```
 
-### 5.2 Error Boundaries
+This pattern dramatically reduces redundant computation.
 
-Each stage in a pipeline should be wrapped in an error handler that emits to the `errorStream` without terminating the primary session pipeline.
+### 4.3 State from History
 
----
+The append-only history is the single source of truth. To find current state:
+- Scan history in reverse
+- Pick the most recent chunk with the relevant annotation
 
-6. Design Principles Summary
------------------------------
-
-1. **Chunks are immutable** - never modify, always create new.
-2. **Evaluators are modular** - encapsulate specialized LLM settings (prompts, temperature) inside evaluator utilities.
-3. **Pipelines are declarative** - Agents should define the flow, not the implementation.
-4. **History is the source of truth** - Derive state (including metadata) from the append-only chunk sequence.
-5. **Multi-modal by design** - Binary, text, and null chunks are handled by the same reactive primitives.
+For example, session name: find the newest chunk with `session.name` annotation.
 
 ---
 
-Document Version: 2.1  
-Last Updated: 2025-05-20
+5. Design Principles
+--------------------
+
+1. **Chunks are immutable** - never modify, always create new chunks
+2. **Evaluators are modular** - encapsulate specific processing logic
+3. **Pipelines are declarative** - describe what, not how
+4. **History is the source of truth** - derive state from the chunk sequence
+5. **Multi-modal by design** - text, binary, and null chunks use the same primitives
+
+---
+
+Document Version: 2.2  
+Last Updated: 2026-03-02
