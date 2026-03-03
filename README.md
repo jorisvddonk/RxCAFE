@@ -70,6 +70,8 @@ Agents are declarative by nature—they say *what* should happen to data, not *h
    - **Tool System**: Agents can call tools using `<|tool_call|>` syntax
      - **Die Roller**: `rollDice` tool for rolling virtual dice (1d6, 2d10+3, etc.)
      - **Tool Detection**: Auto-detects and executes tool calls in LLM responses
+   - **Quickies**: Quick presets for agents with predefined prompts and custom UI modes. Create one-click shortcuts to launch agents with specific configurations.
+   - **Custom UI Modes**: Agents can specify custom UIs (e.g., the Dice Roller).
    - **Voice Chat Agent** (`voice-chat`): Advanced multi-modal agent that accepts **both text and audio input**. Audio is automatically transcribed using [Handy](https://handy.computer/) (local speech-to-text) and processed through the LLM, enabling hands-free voice conversations. Audio is converted to MP3 on-the-fly for compatibility.
  - **Multi-modal Support**: Handle text and **binary chunks** seamlessly.
   - **Image Painter**: Generates and renders random pixel art images.
@@ -280,6 +282,71 @@ curl -X POST http://localhost:3000/api/session/<session-id>/chunk \
 ```
 
 The agent handles audio format conversion automatically and streams the LLM response just like text input.
+
+## Quickies
+
+Quickies provide one-click shortcuts to launch agents with predefined prompts and configurations. They appear as colorful cards in the UI for quick access.
+
+### Creating Quickies
+
+Quickies can be created via the UI (click the **⚡ Quickies** button) or via the API:
+
+```bash
+curl -X POST http://localhost:3000/api/quickies \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <your-token>" \
+  -d '{
+    "presetId": 1,
+    "name": "Creative Writer",
+    "description": "Help me write creatively",
+    "emoji": "✍️",
+    "gradientStart": "#FF6B6B",
+    "gradientEnd": "#4ECDC4",
+    "starterChunk": "I want to write a short story about...",
+    "uiMode": "chat",
+    "displayOrder": 0
+  }'
+```
+
+### UI Modes
+
+Quickies support different UI modes:
+
+- **`chat`** (default): Standard chat interface
+- **`game-dice`**: Full-screen dice roller UI for the dice agent
+
+### Listing Quickies
+
+```bash
+curl http://localhost:3000/api/quickies \
+  -H "Authorization: Bearer <your-token>"
+```
+
+## Dice Roller
+
+The `dice` agent provides both chat-based and visual dice rolling with full notation support.
+
+### Dice Notation
+
+- `2d6` - Roll 2 six-sided dice
+- `1d20+5` - Roll 1d20 and add 5
+- `4d6kh3` - Roll 4d6, keep highest 3 (drop lowest)
+- `d6+d8-2` - Roll d6 and d8, subtract 2
+
+### Chat Mode
+
+Send dice notation as messages:
+```
+roll 3d6+2
+```
+
+### Game Dice UI Mode
+
+When launched via a Quickie with `uiMode: "game-dice"`, the dice agent displays an animated 3D dice interface:
+
+- Click dice buttons (d4, d6, d8, d10, d12, d20) to add to the pool
+- Click the roll area to roll all dice
+- History of rolls is preserved during the session
 
 ## API Endpoints
 
