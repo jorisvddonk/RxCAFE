@@ -122,6 +122,7 @@ export const quizAgent: AgentDefinition = {
 
         if (content === 'start quiz' || content === 'quiz' || content === 'start') {
           await startQuiz(session);
+          if (session.callbacks?.onFinish) session.callbacks.onFinish();
           return null;
         }
 
@@ -131,6 +132,7 @@ export const quizAgent: AgentDefinition = {
             'chat.role': 'assistant'
           });
           session.outputStream.next(scoreChunk);
+          if (session.callbacks?.onFinish) session.callbacks.onFinish();
           return null;
         }
 
@@ -140,6 +142,7 @@ export const quizAgent: AgentDefinition = {
             'chat.role': 'assistant'
           });
           session.outputStream.next(helpChunk);
+          if (session.callbacks?.onFinish) session.callbacks.onFinish();
           return null;
         }
 
@@ -153,6 +156,7 @@ export const quizAgent: AgentDefinition = {
             }
           );
           session.outputStream.next(welcomeChunk);
+          if (session.callbacks?.onFinish) session.callbacks.onFinish();
           return null;
         }
 
@@ -204,6 +208,7 @@ export const quizAgent: AgentDefinition = {
           session.outputStream.next(nextChunk);
         }
 
+        if (session.callbacks?.onFinish) session.callbacks.onFinish();
         return null;
       }),
 
