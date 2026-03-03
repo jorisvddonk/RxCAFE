@@ -14,6 +14,7 @@
     <title>ObservableCAFE Chat</title>
     <link rel="stylesheet" href="/styles.css">
     <link rel="stylesheet" href="/widgets/styles.css">
+    <link rel="stylesheet" href="/css/dice.css">
 </head>
 <body>
     <div id="app">
@@ -50,6 +51,9 @@
                 </div>
                 <div class="header-info">
                     <span id="backend-info">No backend</span>
+                    <button id="ui-mode-toggle-btn" class="btn btn-secondary" title="Switch UI mode" style="display: none;">
+                        <span id="ui-mode-icon">🎲</span>
+                    </button>
                     <button id="inspector-toggle-btn" class="btn btn-secondary" title="Toggle inspector">🔍</button>
                     <button id="theme-toggle-btn" class="btn btn-secondary desktop-only" title="Toggle theme">🌙</button>
                     <button id="new-session-btn" class="btn btn-secondary desktop-only" title="New Session">
@@ -82,6 +86,57 @@
                             <h3>Available Commands:</h3>
                             <code>/web &lt;URL&gt;</code> - Fetch web content (untrusted by default)
                         </div>
+                    </div>
+                </div>
+                
+                <!-- Dice Roller View -->
+                <div id="dice-view" class="view">
+                    <div class="dice-header">
+                        <h2><span class="dice-icon">🎲</span> Dice Roller</h2>
+                        <button id="dice-switch-chat" class="dice-switch-btn">Switch to Chat</button>
+                    </div>
+                    
+                    <div class="dice-selection-area">
+                        <div class="dice-selection-display">
+                            <div id="dice-selection" class="dice-selection-text empty">Select dice to roll</div>
+                        </div>
+                        
+                        <div class="dice-buttons">
+                            <button id="dice-btn-d4" class="dice-btn d4">d4</button>
+                            <button id="dice-btn-d6" class="dice-btn d6">d6</button>
+                            <button id="dice-btn-d8" class="dice-btn d8">d8</button>
+                            <button id="dice-btn-d10" class="dice-btn d10">d10</button>
+                            <button id="dice-btn-d12" class="dice-btn d12">d12</button>
+                            <button id="dice-btn-d20" class="dice-btn d20">d20</button>
+                            <button id="dice-btn-d100" class="dice-btn d100">d100</button>
+                        </div>
+                        
+                        <div class="modifier-buttons">
+                            <button id="dice-mod-plus" class="mod-btn plus">+5</button>
+                            <button id="dice-mod-minus" class="mod-btn minus">-5</button>
+                            <button id="dice-clear-btn" class="dice-clear-btn">Clear</button>
+                        </div>
+                        
+                        <div style="display: flex; justify-content: center; align-items: center; margin-top: 16px;">
+                            <button id="dice-roll-btn" class="dice-roll-btn" disabled>ROLL</button>
+                        </div>
+                        
+                        <div class="dice-actions">
+                            <button id="dice-llm-toggle" class="dice-toggle-btn active">🤖 On</button>
+                            <button id="dice-history-btn" class="dice-toggle-btn">📜 History</button>
+                        </div>
+                    </div>
+                    
+                    <div id="dice-history" class="dice-history">
+                        <div class="dice-empty">
+                            <div class="dice-empty-icon">🎲</div>
+                            <p>No rolls yet. Select dice and roll!</p>
+                        </div>
+                    </div>
+                    
+                    <div class="dice-chat-section">
+                        <div class="dice-chat-title">Chat Messages</div>
+                        <div id="dice-chat-messages" class="dice-chat-messages"></div>
                     </div>
                 </div>
                 
@@ -213,6 +268,7 @@
                             <label for="quickie-ui-mode">UI Mode</label>
                             <select id="quickie-ui-mode">
                                 <option value="chat">Chat</option>
+                                <option value="game-dice">Dice Roller</option>
                             </select>
                         </div>
                         <div class="form-actions">
@@ -263,6 +319,7 @@
     <script type="module" src="/widgets/rx-quick-responses.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js"></script>
+    <script src="/js/dice-ui.js"></script>
     <script src="/js/quickies.js"></script>
     <script type="module" src="/app.js"></script>
 </body>

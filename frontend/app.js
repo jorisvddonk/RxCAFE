@@ -27,6 +27,7 @@ class RXCafeChat {
         this.agents = [];
         this.knownSessions = [];
         this.uiMode = 'chat';
+        this.diceUIController = null;
         
         this._pendingUserMsg = null;
         this._lastAssistantEl = null;
@@ -114,7 +115,7 @@ class RXCafeChat {
         } else {
             this.uiModeIcon.textContent = '🎲';
             this.uiModeToggleBtn.title = 'Switch to Dice Roller';
-    }
+        }
     }
 
     handleHashChange() {

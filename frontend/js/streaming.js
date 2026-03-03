@@ -135,6 +135,12 @@ export class StreamingManager {
             console.log(`[RXCAFE] New chunk from stream, rendering:`, chunk.id, chunk.contentType, chunk.content?.mimeType);
             chat.addRawChunk(chunk);
             chat.renderChunk(chunk);
+            
+            // Pass dice-specific chunks to dice controller if in dice mode
+            if (chat.diceUIController && chat.uiMode === 'game-dice') {
+                chat.diceUIController.handleChunk(chunk);
+            }
+            
             chat.updateInspector();
         }
     }

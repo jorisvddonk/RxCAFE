@@ -52,7 +52,8 @@ import {
   getIconSvg,
   getWidgetFile,
   getWidgetCss,
-  getJsFile
+  getJsFile,
+  getDiceCss
 } from './lib/frontend-server.js';
 import { 
   initTelegramHandler, 
@@ -213,6 +214,7 @@ const server = serve({
     if (pathname === '/manifest.json') return new Response(getManifest(), { headers: { 'Content-Type': 'application/json', ...corsHeaders } });
     if (pathname === '/sw.js') return new Response(getServiceWorker(), { headers: { 'Content-Type': 'application/javascript', ...corsHeaders } });
     if (pathname === '/widgets/styles.css') return new Response(getWidgetCss(), { headers: { 'Content-Type': 'text/css', ...corsHeaders } });
+    if (pathname === '/css/dice.css') return new Response(getDiceCss(), { headers: { 'Content-Type': 'text/css', ...corsHeaders } });
     if (pathname === '/icon.svg') return new Response(getIconSvg(), { headers: { 'Content-Type': 'image/svg+xml', ...corsHeaders } });
     
     if (pathname.startsWith('/widgets/')) {

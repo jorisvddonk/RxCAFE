@@ -89,6 +89,14 @@ export function getWidgetCss(): string {
   }
 }
 
+export function getDiceCss(): string {
+  try {
+    return readFileSync(join(FRONTEND_DIR, 'css', 'dice.css'), 'utf-8');
+  } catch {
+    return '';
+  }
+}
+
 export function getJsFile(filename: string): string | null {
   try {
     return readFileSync(join(FRONTEND_DIR, 'js', filename), 'utf-8');

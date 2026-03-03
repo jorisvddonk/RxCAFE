@@ -1,0 +1,432 @@
+/* Dice Roller UI - Game-like interface, NOT chat-like */
+
+#dice-view {
+  display: none;
+  flex-direction: column;
+  height: 100%;
+  background: linear-gradient(180deg, #1a1a2e 0%, #16213e 100%);
+  color: #e0e0e0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.dice-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  background: rgba(0, 0, 0, 0.3);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.dice-header h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dice-header h2 .dice-icon {
+  font-size: 1.5rem;
+}
+
+.dice-switch-btn {
+  padding: 8px 16px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  color: #e0e0e0;
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: background 0.2s;
+}
+
+.dice-switch-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.dice-selection-area {
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.2);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.dice-selection-display {
+  text-align: center;
+  margin-bottom: 16px;
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.dice-selection-text {
+  font-size: 1.25rem;
+  font-weight: 500;
+  color: #f0f0f0;
+  padding: 8px 20px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.dice-selection-text.empty {
+  color: #666;
+  font-style: italic;
+}
+
+.dice-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+.dice-btn {
+  width: 56px;
+  height: 56px;
+  border: none;
+  border-radius: 12px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+}
+
+.dice-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.4);
+}
+
+.dice-btn:active {
+  transform: translateY(0);
+}
+
+.dice-btn.d4 { background: linear-gradient(135deg, #ff6b6b, #ee5a5a); color: white; }
+.dice-btn.d6 { background: linear-gradient(135deg, #4ecdc4, #45b7aa); color: white; }
+.dice-btn.d8 { background: linear-gradient(135deg, #a55eea, #8854d0); color: white; }
+.dice-btn.d10 { background: linear-gradient(135deg, #ffb347, #e6a030); color: white; }
+.dice-btn.d12 { background: linear-gradient(135deg, #ff8a00, #e07800); color: white; }
+.dice-btn.d20 { background: linear-gradient(135deg, #667eea, #5568d6); color: white; }
+.dice-btn.d100 { background: linear-gradient(135deg, #764ba2, #654392); color: white; }
+
+.modifier-buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+
+.mod-btn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.mod-btn.plus {
+  background: linear-gradient(135deg, #2ecc71, #27ae60);
+  color: white;
+}
+
+.mod-btn.minus {
+  background: linear-gradient(135deg, #e74c3c, #c0392b);
+  color: white;
+}
+
+.mod-btn:hover {
+  transform: scale(1.05);
+}
+
+.mod-btn:active {
+  transform: scale(0.98);
+}
+
+.dice-clear-btn {
+  padding: 10px 20px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  color: #aaa;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.dice-clear-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: #fff;
+}
+
+.dice-roll-btn {
+  padding: 14px 40px;
+  background: linear-gradient(135deg, #f093fb, #f5576c);
+  border: none;
+  border-radius: 12px;
+  color: white;
+  font-size: 1.25rem;
+  font-weight: 700;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  box-shadow: 0 4px 15px rgba(245, 87, 108, 0.4);
+  transition: all 0.2s ease;
+  margin-left: 12px;
+}
+
+.dice-roll-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(245, 87, 108, 0.5);
+}
+
+.dice-roll-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.dice-roll-btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.dice-actions {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.dice-toggle-btn {
+  padding: 8px 16px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 6px;
+  color: #aaa;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.dice-toggle-btn.active {
+  background: rgba(102, 126, 234, 0.3);
+  border-color: rgba(102, 126, 234, 0.5);
+  color: #aab4ff;
+}
+
+.dice-toggle-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.dice-history {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.dice-history::-webkit-scrollbar {
+  width: 8px;
+}
+
+.dice-history::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.dice-history::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+}
+
+.dice-history::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+
+.dice-history-title {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #666;
+  margin-bottom: 8px;
+}
+
+.dice-result-card {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 12px;
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.dice-result-card.critical {
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.2), rgba(245, 87, 108, 0.2));
+  border-color: rgba(102, 126, 234, 0.3);
+}
+
+.dice-result-card.failure {
+  background: rgba(231, 76, 60, 0.1);
+  border-color: rgba(231, 76, 60, 0.3);
+}
+
+.dice-result-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.dice-result-notation {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #f0f0f0;
+}
+
+.dice-result-badge {
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.dice-result-badge.critical {
+  background: linear-gradient(135deg, #f093fb, #f5576c);
+  color: white;
+}
+
+.dice-result-badge.failure {
+  background: #e74c3c;
+  color: white;
+}
+
+.dice-faces {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.dice-face {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: white;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.dice-face.d4 { background: linear-gradient(135deg, #ff6b6b, #ee5a5a); }
+.dice-face.d6 { background: linear-gradient(135deg, #4ecdc4, #45b7aa); }
+.dice-face.d8 { background: linear-gradient(135deg, #a55eea, #8854d0); }
+.dice-face.d10 { background: linear-gradient(135deg, #ffb347, #e6a030); }
+.dice-face.d12 { background: linear-gradient(135deg, #ff8a00, #e07800); }
+.dice-face.d20 { background: linear-gradient(135deg, #667eea, #5568d6); }
+.dice-face.d100 { background: linear-gradient(135deg, #764ba2, #654392); }
+
+.dice-result-total {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.dice-result-total .modifier {
+  font-size: 1rem;
+  color: #888;
+  margin-left: 4px;
+}
+
+.dice-result-breakdown {
+  font-size: 0.875rem;
+  color: #888;
+  margin-top: 4px;
+}
+
+.dice-result-comment {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  font-style: italic;
+  color: #aaa;
+  font-size: 0.9rem;
+}
+
+.dice-empty {
+  text-align: center;
+  padding: 40px;
+  color: #666;
+}
+
+.dice-empty-icon {
+  font-size: 3rem;
+  margin-bottom: 12px;
+  opacity: 0.5;
+}
+
+.dice-chat-section {
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(0, 0, 0, 0.2);
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.dice-chat-title {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: #666;
+  padding: 12px 16px 8px;
+}
+
+.dice-chat-messages {
+  padding: 0 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dice-chat-msg {
+  font-size: 0.85rem;
+  color: #999;
+}
+
+.dice-chat-msg .role {
+  color: #666;
+  font-weight: 500;
+}
+
+.dice-chat-msg.user .role { color: #4ecdc4; }
+.dice-chat-msg.assistant .role { color: #a55eea; }
+
+@media (max-width: 640px) {
+  .dice-btn {
+    width: 48px;
+    height: 48px;
+    font-size: 0.95rem;
+  }
+  
+  .dice-roll-btn {
+    width: 100%;
+    margin: 12px 0 0;
+  }
+  
+  .dice-actions {
+    flex-direction: column;
+  }
+  
+  .dice-toggle-btn {
+    width: 100%;
+  }
+}
