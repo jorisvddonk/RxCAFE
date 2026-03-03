@@ -22,7 +22,6 @@ export class DiceRoller extends LitElement {
     _llmComments: { state: true },
     _rollHistory: { state: true },
     _isRolling: { state: true },
-    _chatMessages: { state: true },
   };
 
   static styles = css`
@@ -352,48 +351,6 @@ export class DiceRoller extends LitElement {
       border-left: 3px solid rgba(78, 205, 196, 0.5);
     }
 
-    .chat-section {
-      max-height: 200px;
-      border-top: 1px solid rgba(255, 255, 255, 0.1);
-      background: rgba(0, 0, 0, 0.2);
-    }
-
-    .chat-title {
-      padding: 8px 16px;
-      font-size: 0.8rem;
-      opacity: 0.7;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-    }
-
-    .chat-messages {
-      padding: 12px;
-      overflow-y: auto;
-      max-height: 150px;
-    }
-
-    .chat-message {
-      margin-bottom: 8px;
-      padding: 8px 12px;
-      border-radius: 8px;
-      font-size: 0.9rem;
-    }
-
-    .chat-message.user {
-      background: rgba(78, 205, 196, 0.15);
-      margin-left: 20px;
-    }
-
-    .chat-message.assistant {
-      background: rgba(255, 255, 255, 0.05);
-      margin-right: 20px;
-    }
-
-    .chat-message .role {
-      font-size: 0.75rem;
-      opacity: 0.7;
-      text-transform: uppercase;
-      margin-right: 8px;
-    }
   `;
 
   constructor() {
@@ -406,7 +363,6 @@ export class DiceRoller extends LitElement {
     this._llmComments = true;
     this._rollHistory = [];
     this._isRolling = false;
-    this._chatMessages = [];
     this._diceSides = ['d4', 'd6', 'd8', 'd10', 'd12', 'd20', 'd100'];
     this._rollTimeout = null;
   }
@@ -585,11 +541,6 @@ export class DiceRoller extends LitElement {
         clearTimeout(this._rollTimeout);
         this._rollTimeout = null;
       }
-    } else if (chunk.contentType === 'text' && chunk.annotations?.['chat.role']) {
-      // Skip dice result messages in chat
-      if (!chunk.annotations?.['dice.notation']) {
-        this._addChatMessage(chunk);
-      }
     } else if (chunk.contentType === 'null') {
       if (chunk.annotations?.['dice.roll']) {
         this._rollHistory = [...this._rollHistory, chunk.annotations['dice.roll']];
@@ -599,7 +550,6 @@ export class DiceRoller extends LitElement {
       }
       if (chunk.annotations?.['dice.clear']) {
         this._rollHistory = [];
-        this._chatMessages = [];
       }
     }
 
@@ -610,6 +560,7 @@ export class DiceRoller extends LitElement {
     const roll = {
       notation: chunk.annotations['dice.notation'],
       dice: chunk.annotations['dice.rolls'],
+      diceTypes: chunk.annotations['dice.diceTypes'] || [],
       modifier: chunk.annotations['dice.modifier'] || 0,
       total: chunk.annotations['dice.total'],
       timestamp: chunk.annotations['dice.timestamp'],
@@ -619,20 +570,11 @@ export class DiceRoller extends LitElement {
     this._rollHistory = [...this._rollHistory, roll];
   }
 
-  _addChatMessage(chunk) {
-    this._chatMessages = [...this._chatMessages, {
-      role: chunk.annotations['chat.role'],
-      content: chunk.content,
-      id: chunk.id || Date.now()
-    }];
-  }
-
   /**
    * Load history from an array of chunks
    */
   loadHistory(chunks) {
     this._rollHistory = [];
-    this._chatMessages = [];
     this._llmComments = true;
 
     for (const chunk of chunks) {
@@ -706,18 +648,6 @@ export class DiceRoller extends LitElement {
         `}
       </div>
 
-      ${this._chatMessages.length > 0 ? html`
-        <div class="chat-section">
-          <div class="chat-title">Chat Messages</div>
-          <div class="chat-messages">
-            ${this._chatMessages.map(msg => html`
-              <div class="chat-message ${msg.role}">
-                <span class="role">${msg.role}:</span> ${msg.content}
-              </div>
-            `)}
-          </div>
-        </div>
-      ` : null}
     `;
   }
 
@@ -725,11 +655,15 @@ export class DiceRoller extends LitElement {
     const isD20 = roll.notation.includes('d20') && roll.dice.length === 1;
     const isCritical = isD20 && roll.total === 20;
     const isFailure = isD20 && roll.total === 1;
-    const diceType = this._getDiceTypeFromNotation(roll.notation);
     const diceSum = roll.dice.reduce((a, b) => a + b, 0);
     const breakdown = roll.modifier !== 0
       ? `${diceSum} ${roll.modifier > 0 ? '+' : ''}${roll.modifier} = ${roll.total}`
       : `${diceSum} = ${roll.total}`;
+
+    // Use diceTypes if available, otherwise fall back to deriving from notation
+    const diceTypes = roll.diceTypes && roll.diceTypes.length === roll.dice.length
+      ? roll.diceTypes
+      : roll.dice.map(() => this._getDiceTypeFromNotation(roll.notation));
 
     return html`
       <div class="roll-card ${classMap({ critical: isCritical, failure: isFailure })}">
@@ -739,8 +673,8 @@ export class DiceRoller extends LitElement {
           ${isFailure ? html`<span class="roll-badge failure">FAILURE</span>` : ''}
         </div>
         <div class="dice-faces">
-          ${roll.dice.map(d => html`
-            <div class="dice-face ${diceType}">${d}</div>
+          ${roll.dice.map((d, i) => html`
+            <div class="dice-face ${diceTypes[i]}">${d}</div>
           `)}
         </div>
         <div class="roll-total">${roll.total}</div>

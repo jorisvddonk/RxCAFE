@@ -12,6 +12,7 @@ import { EMPTY, filter, map, mergeMap, catchError } from '../lib/stream.js';
 interface DiceRoll {
   notation: string;
   dice: number[];
+  diceTypes: string[]; // e.g., ['d6', 'd6', 'd8'] for each die rolled
   modifier: number;
   total: number;
   timestamp: number;
@@ -22,30 +23,31 @@ interface DiceState {
   llmComments: boolean;
 }
 
-function parseDiceNotation(notation: string): { dice: number[]; modifier: number; error?: string } {
+function parseDiceNotation(notation: string): { dice: number[]; diceTypes: string[]; modifier: number; error?: string } {
   const dice: number[] = [];
+  const diceTypes: string[] = [];
   let modifier = 0;
-  
+
   const cleaned = notation.toLowerCase().replace(/\s+/g, '');
-  
+
   // Handle modifiers at the end: +5, -2, +5-3 (last one wins)
   const modifierMatch = cleaned.match(/([+-]\d+)$/);
   if (modifierMatch) {
     modifier = parseInt(modifierMatch[1], 10);
   }
-  
+
   // Remove the modifier from the string for dice parsing
   const dicePart = cleaned.replace(/([+-]\d+)$/, '');
-  
+
   // Split by + or - but keep the separator for parsing
   // Handle multiple dice groups like "2d6+d12" or "d6+d12-1d4"
-  const groups: { dice: number[], modifier: number }[] = [];
-  
+  const groups: { dice: number[], diceTypes: string[], modifier: number }[] = [];
+
   // First, extract any inline modifiers from the dice part (like "2d6-1")
   let remaining = dicePart;
   while (remaining.length > 0) {
     let matched = false;
-    
+
     // Try to match XdYkhZ (keep highest)
     const khMatch = remaining.match(/^(\d+)d(\d+)kh(\d+)/);
     if (khMatch) {
@@ -53,17 +55,20 @@ function parseDiceNotation(notation: string): { dice: number[]; modifier: number
       const sides = parseInt(khMatch[2], 10);
       const keep = parseInt(khMatch[3], 10);
       const groupDice: number[] = [];
+      const groupTypes: string[] = [];
       for (let i = 0; i < count; i++) {
         groupDice.push(Math.floor(Math.random() * sides) + 1);
+        groupTypes.push(`d${sides}`);
       }
       groupDice.sort((a, b) => b - a);
+      groupTypes.splice(keep); // Keep only the types for kept dice
       while (groupDice.length > keep) groupDice.pop();
-      groups.push({ dice: groupDice, modifier: 0 });
+      groups.push({ dice: groupDice, diceTypes: groupTypes, modifier: 0 });
       remaining = remaining.slice(khMatch[0].length);
       matched = true;
       continue;
     }
-    
+
     // Try to match XdYklZ (keep lowest)
     const klMatch = remaining.match(/^(\d+)d(\d+)kl(\d+)/);
     if (klMatch) {
@@ -71,71 +76,77 @@ function parseDiceNotation(notation: string): { dice: number[]; modifier: number
       const sides = parseInt(klMatch[2], 10);
       const keep = parseInt(klMatch[3], 10);
       const groupDice: number[] = [];
+      const groupTypes: string[] = [];
       for (let i = 0; i < count; i++) {
         groupDice.push(Math.floor(Math.random() * sides) + 1);
+        groupTypes.push(`d${sides}`);
       }
       groupDice.sort((a, b) => a - b);
+      groupTypes.splice(keep);
       while (groupDice.length > keep) groupDice.pop();
-      groups.push({ dice: groupDice, modifier: 0 });
+      groups.push({ dice: groupDice, diceTypes: groupTypes, modifier: 0 });
       remaining = remaining.slice(klMatch[0].length);
       matched = true;
       continue;
     }
-    
+
     // Try to match XdY
     const standardMatch = remaining.match(/^(\d+)d(\d+)/);
     if (standardMatch) {
       const count = parseInt(standardMatch[1], 10);
       const sides = parseInt(standardMatch[2], 10);
-      if (count > 100) return { dice: [], modifier: 0, error: 'Too many dice (max 100)' };
-      if (sides > 1000) return { dice: [], modifier: 0, error: 'Too many sides (max 1000)' };
+      if (count > 100) return { dice: [], diceTypes: [], modifier: 0, error: 'Too many dice (max 100)' };
+      if (sides > 1000) return { dice: [], diceTypes: [], modifier: 0, error: 'Too many sides (max 1000)' };
       const groupDice: number[] = [];
+      const groupTypes: string[] = [];
       for (let i = 0; i < count; i++) {
         groupDice.push(Math.floor(Math.random() * sides) + 1);
+        groupTypes.push(`d${sides}`);
       }
-      groups.push({ dice: groupDice, modifier: 0 });
+      groups.push({ dice: groupDice, diceTypes: groupTypes, modifier: 0 });
       remaining = remaining.slice(standardMatch[0].length);
       matched = true;
       continue;
     }
-    
+
     // Try to match dX (single die)
     const singleMatch = remaining.match(/^d(\d+)/);
     if (singleMatch) {
       const sides = parseInt(singleMatch[1], 10);
-      if (sides > 1000) return { dice: [], modifier: 0, error: 'Too many sides (max 1000)' };
-      groups.push({ dice: [Math.floor(Math.random() * sides) + 1], modifier: 0 });
+      if (sides > 1000) return { dice: [], diceTypes: [], modifier: 0, error: 'Too many sides (max 1000)' };
+      groups.push({ dice: [Math.floor(Math.random() * sides) + 1], diceTypes: [`d${sides}`], modifier: 0 });
       remaining = remaining.slice(singleMatch[0].length);
       matched = true;
       continue;
     }
-    
+
     // Skip + or - between dice groups
     if (remaining[0] === '+' || remaining[0] === '-') {
       remaining = remaining.slice(1);
       matched = true;
       continue;
     }
-    
+
     if (!matched) {
       if (remaining.length > 0) {
-        return { dice: [], modifier: 0, error: `Invalid dice notation: ${notation}` };
+        return { dice: [], diceTypes: [], modifier: 0, error: `Invalid dice notation: ${notation}` };
       }
       break;
     }
   }
-  
+
   // Combine all groups
   for (const group of groups) {
     dice.push(...group.dice);
+    diceTypes.push(...group.diceTypes);
     modifier += group.modifier;
   }
-  
+
   if (dice.length === 0 && dicePart.length > 0) {
-    return { dice: [], modifier: 0, error: `Invalid dice notation: ${notation}` };
+    return { dice: [], diceTypes: [], modifier: 0, error: `Invalid dice notation: ${notation}` };
   }
-  
-  return { dice, modifier };
+
+  return { dice, diceTypes, modifier };
 }
 
 function formatDiceResult(roll: DiceRoll): string {
@@ -229,6 +240,7 @@ export const diceAgent: AgentDefinition = {
             const roll: DiceRoll = {
               notation,
               dice: parsed.dice,
+              diceTypes: parsed.diceTypes,
               modifier: parsed.modifier,
               total,
               timestamp: Date.now(),
@@ -250,6 +262,7 @@ export const diceAgent: AgentDefinition = {
                 'chat.role': 'assistant',
                 'dice.notation': notation,
                 'dice.rolls': roll.dice,
+                'dice.diceTypes': roll.diceTypes,
                 'dice.modifier': roll.modifier,
                 'dice.total': roll.total,
                 'dice.timestamp': roll.timestamp,
