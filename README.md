@@ -14,6 +14,11 @@ A reactive chat application built with the ObservableCAFE architecture pattern, 
 
 ![alt text](docs/assets/image-4.png)
 
+![alt text](docs/assets/image-6.png)
+
+![alt text](docs/assets/image-5.png)
+
+
 
 ## Philosophy
 
