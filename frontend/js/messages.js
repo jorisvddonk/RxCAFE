@@ -11,6 +11,7 @@ import { RxMessageVisualization } from '../widgets/rx-message-visualization.js';
 import { RxMessageCode } from '../widgets/rx-message-code.js';
 import { RxMessageDiff } from '../widgets/rx-message-diff.js';
 import { RxQuickResponses } from '../widgets/rx-quick-responses.js';
+import { RxWeather } from '../widgets/rx-weather.js';
 
 export class MessagesManager {
     constructor(chat) {
@@ -43,6 +44,12 @@ export class MessagesManager {
 
         if (isCode) {
             this.addCodeMessage(chunk);
+            return;
+        }
+
+        const isWeather = chunk.annotations?.['weather.data'];
+        if (isWeather) {
+            this.addWeatherMessage(chunk);
             return;
         }
 
@@ -201,15 +208,40 @@ export class MessagesManager {
 
     addSystemChunk(chunk, prompt) {
         this.chat.addRawChunk(chunk);
-        
+
         const systemEl = document.createElement('rx-message-system');
         systemEl.content = prompt;
         systemEl.chunkId = chunk.id;
         systemEl.type = 'system-prompt';
-        
+
         this.chat.messagesEl.appendChild(systemEl);
         this.chat.chunkElements.set(chunk.id, systemEl);
         scrollToBottom(this.chat.messagesEl);
+    }
+
+    addWeatherMessage(chunk) {
+        this.chat.addRawChunk(chunk);
+
+        try {
+            const weatherData = JSON.parse(chunk.content);
+            const location = chunk.annotations?.['weather.location'] || '';
+            const timezone = chunk.annotations?.['weather.timezone'] || '';
+
+            const weatherEl = document.createElement('rx-weather');
+            this.chat._elCounter++;
+            weatherEl.dataset.elId = this.chat._elCounter;
+            weatherEl.weatherData = weatherData;
+            weatherEl.location = location;
+            weatherEl.timezone = timezone;
+            weatherEl.chunkId = chunk.id;
+
+            this.chat.messagesEl.appendChild(weatherEl);
+            this.chat.chunkElements.set(chunk.id, weatherEl);
+            scrollToBottom(this.chat.messagesEl);
+        } catch (e) {
+            console.error('[RXCAFE] Failed to parse weather data:', e);
+            this.addMessage('assistant', chunk.content, chunk.id, chunk.annotations);
+        }
     }
 
     addWebChunk(chunk) {
