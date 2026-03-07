@@ -114,7 +114,23 @@ export const sheetbotMonitorAgent: AgentDefinition = {
             }
           }
         } catch (error) {
-          console.error('[SheetbotMonitor] Error checking tasks:', error);
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          if (errorMessage.includes('Authentication failed') || errorMessage.includes('401') || errorMessage.includes('403')) {
+            console.log('[SheetbotMonitor] Token expired, re-authenticating...');
+            try {
+              await api.loginWithApiKey(apiKey);
+              console.log('[SheetbotMonitor] Re-authentication successful, retrying check...');
+              await checkForChanges();
+            } catch (reAuthError) {
+              console.error('[SheetbotMonitor] Re-authentication failed:', reAuthError);
+              emitMessage(
+                `SheetBot monitor error: Re-authentication failed - ${reAuthError}`,
+                'auth_error'
+              );
+            }
+          } else {
+            console.error('[SheetbotMonitor] Error checking tasks:', error);
+          }
         }
       };
 
