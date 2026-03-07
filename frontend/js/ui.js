@@ -334,6 +334,10 @@ export class UIManager {
                 ? (trustStatus ? 'trusted' : 'untrusted')
                 : role;
             
+            if (!chunk || !chunk.id) {
+                console.warn('[UI] Skipping invalid chunk in inspector:', chunk);
+                return '';
+            }
             return `
                 <div class="inspector-chunk" data-chunk-id="${chunk.id}">
                     <div class="inspector-chunk-header" onclick="this.parentElement.classList.toggle('expanded')">
@@ -353,6 +357,7 @@ export class UIManager {
         if (role === 'system') return 'system';
         if (role) return role;
         if (chunk.producer === 'com.rxcafe.web-fetch' || chunk.annotations?.['web.source-url']) return 'web';
+        if (!chunk.producer) return 'unknown';
         if (chunk.producer.includes('kobold') || chunk.producer.includes('ollama') || chunk.producer === 'com.rxcafe.assistant') return 'assistant';
         return chunk.producer.split('.').pop();
     }
