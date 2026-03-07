@@ -143,7 +143,11 @@ export class SessionStore {
         };
       }
       
-      insertStmt.run(chunk.id, sessionId, safeStringify(serializedChunk), chunk.timestamp);
+      const timestamp = chunk.timestamp ?? Date.now();
+      if (!chunk.timestamp) {
+        console.log(`[SessionStore] Chunk ${chunk.id} missing timestamp, using ${timestamp}`);
+      }
+      insertStmt.run(chunk.id, sessionId, safeStringify(serializedChunk), timestamp);
     }
     
     insertStmt.finalize();
