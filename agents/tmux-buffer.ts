@@ -50,32 +50,76 @@ export const tmuxBufferAgent: AgentDefinition = {
         maxTokens: 500
       });
 
-      const truncatedContent = content.length > 3000 ? content.slice(0, 3000) + '...[truncated]' : content;
+      console.log(`[TmuxBufferAgent] Window ${windowInfo}: content length = ${content.length}`);
 
-      const prompt = `Summarize this tmux window terminal output in 1-2 sentences. What is it about? Be concise.
+      // Turn 1: Identify which tool/agent is running
+      const identifyPrompt = `What terminal tool is shown in this output? Look for tool names in the UI, prompts, or headers.
+Output: ${content}
+Answer with just the tool name:`;
 
-Terminal output:
-${truncatedContent}
-
-Summary:`;
-
-      const promptChunk = createTextChunk(prompt, 'com.rxcafe.tmux-buffer', {
+      const identifyChunk = createTextChunk(identifyPrompt, 'com.rxcafe.tmux-buffer', {
         'llm.full-prompt': true
       });
 
-      let summary = '';
+      let toolName = 'unknown';
       try {
-        for await (const tokenChunk of evaluator.evaluateChunk(promptChunk)) {
+        let fullResponse = '';
+        for await (const tokenChunk of evaluator.evaluateChunk(identifyChunk)) {
           if (tokenChunk.contentType === 'text') {
-            summary += tokenChunk.content;
+            fullResponse += tokenChunk.content;
           }
         }
+        toolName = fullResponse.trim();
+        console.log(`[TmuxBufferAgent] Window ${windowInfo}: detected tool = "${toolName}"`);
       } catch (err) {
-        console.error('[TmuxBufferAgent] LLM summary failed:', err);
-        summary = '(summary failed)';
+        console.error('[TmuxBufferAgent] Tool identification failed:', err);
       }
 
-      return `Window ${windowInfo}: ${summary.trim()}`;
+      let summary = '';
+
+      // Turn 2: If Kilo or opencode, summarize the agent response
+      if (toolName.toLowerCase().includes('kilo') || toolName.toLowerCase().includes('opencode')) {
+        const agentPrompt = `Summarize this Kilo/opencode session. What did the agent just do? Is it waiting for user?
+Output: ${content}
+Format: "Did X. Status: waiting/done."`;
+
+        const agentChunk = createTextChunk(agentPrompt, 'com.rxcafe.tmux-buffer', {
+          'llm.full-prompt': true
+        });
+
+        try {
+          for await (const tokenChunk of evaluator.evaluateChunk(agentChunk)) {
+            if (tokenChunk.contentType === 'text') {
+              summary += tokenChunk.content;
+            }
+          }
+        } catch (err) {
+          console.error('[TmuxBufferAgent] Agent summary failed:', err);
+          summary = '(summary failed)';
+        }
+      } else {
+        // Regular summary for other tools
+        const regularPrompt = `Summarize what this terminal window is showing in 1-2 sentences:
+${content}`;
+
+        const regularChunk = createTextChunk(regularPrompt, 'com.rxcafe.tmux-buffer', {
+          'llm.full-prompt': true
+        });
+
+        try {
+          for await (const tokenChunk of evaluator.evaluateChunk(regularChunk)) {
+            if (tokenChunk.contentType === 'text') {
+              summary += tokenChunk.content;
+            }
+          }
+        } catch (err) {
+          console.error('[TmuxBufferAgent] LLM summary failed:', err);
+          summary = '(summary failed)';
+        }
+      }
+
+      console.log(`[TmuxBufferAgent] Window ${windowInfo}: summary = "${summary.trim().slice(0, 100)}..."`);
+      return `Window ${windowInfo} (${toolName}): ${summary.trim()}`;
     };
 
     const performSummarization = async (trigger: string) => {
