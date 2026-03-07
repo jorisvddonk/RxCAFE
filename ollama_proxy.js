@@ -29,6 +29,7 @@ let menuOpen = false;
 let menuSelection = 0;
 let menuFields = FIELDS.map((f) => visibleFields.has(f.key));
 let truncate = true;
+let scrollOffset = 0;
 
 function render() {
   term.clear();
@@ -65,9 +66,12 @@ function render() {
 
     term("\n" + "^DDetail level: ^" + detailLevel + "\n");
   } else {
-    term.dim("[←/→ detail: " + detailLevel + "] [t: truncate: " + (truncate ? "on" : "off") + "] [Enter: menu] [q: quit]\n");
+    term.dim("[←/→ detail: " + detailLevel + "] [t: truncate: " + (truncate ? "on" : "off") + "] [Enter: menu] [↑/↓/PgUp/PgDn: scroll] [q: quit]\n");
 
-    const toShow = requests.slice(-Math.floor(term.height - 2));
+    const maxVisible = Math.floor(term.height - 2);
+    const startIdx = Math.max(0, requests.length - maxVisible - scrollOffset);
+    const endIdx = requests.length - scrollOffset;
+    const toShow = requests.slice(startIdx, endIdx);
 
     toShow.forEach((req) => {
       const time = new Date(req.time).toLocaleTimeString("en-US", {
@@ -164,7 +168,15 @@ function render() {
 
 function addRequest(req) {
   requests.push(req);
-  if (requests.length > 100) requests.shift();
+  if (requests.length > 100) {
+    requests.shift();
+    if (scrollOffset > 0) {
+      scrollOffset = Math.max(0, scrollOffset - 1);
+    }
+  }
+  if (scrollOffset > 0) {
+    scrollOffset++;
+  }
   render();
 }
 
@@ -208,6 +220,18 @@ term.on("key", (name) => {
       render();
     } else if (name === "t") {
       truncate = !truncate;
+      render();
+    } else if (name === "UP" || name === "k") {
+      scrollOffset = Math.min(requests.length - 1, scrollOffset + 1);
+      render();
+    } else if (name === "DOWN" || name === "j") {
+      scrollOffset = Math.max(0, scrollOffset - 1);
+      render();
+    } else if (name === "PAGE_UP") {
+      scrollOffset = Math.min(requests.length - 1, scrollOffset + Math.floor(term.height / 2));
+      render();
+    } else if (name === "PAGE_DOWN") {
+      scrollOffset = Math.max(0, scrollOffset - Math.floor(term.height / 2));
       render();
     } else if (name === "q" || name === "CTRL_C") {
       term.clear();
