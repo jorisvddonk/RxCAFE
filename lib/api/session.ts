@@ -16,6 +16,19 @@ import type { SessionStore } from '../session-store.js';
 let config: CoreConfig;
 let sessionStore: SessionStore;
 
+function safeStringify(obj: any): string {
+  const seen = new WeakSet();
+  return JSON.stringify(obj, (key, value) => {
+    if (typeof value === 'object' && value !== null) {
+      if (seen.has(value)) {
+        return '[Circular]';
+      }
+      seen.add(value);
+    }
+    return value;
+  });
+}
+
 export function init(deps: { config: CoreConfig; sessionStore: SessionStore }) {
   config = deps.config;
   sessionStore = deps.sessionStore;
@@ -146,7 +159,7 @@ export async function handleGetHistory(sessionId: string): Promise<Response> {
     return new Response(JSON.stringify({ error: 'Session not found' }), { status: 404, headers: { 'Content-Type': 'application/json' } });
   }
   
-  return new Response(JSON.stringify({ 
+  return new Response(safeStringify({
     sessionId,
     displayName: session.displayName,
     uiMode: session.uiMode,
