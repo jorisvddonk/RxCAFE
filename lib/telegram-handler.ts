@@ -756,6 +756,9 @@ function ensureSubscription(chatId: number, session: Session) {
         } else if (isSystem) {
           await telegramBot.sendMessage(chatId, `⚙️ *System:* ${chunk.content}`, { parseMode: 'Markdown' });
         } else if (isAssistant) {
+          if (!chunk.content || (typeof chunk.content === 'string' && !chunk.content.trim())) {
+            return;
+          }
           const quickResponses = chunk.annotations['com.rxcafe.quickResponses'];
           if (quickResponses && Array.isArray(quickResponses) && quickResponses.length > 0) {
             await telegramBot.sendMessage(chatId, chunk.content as string, {
