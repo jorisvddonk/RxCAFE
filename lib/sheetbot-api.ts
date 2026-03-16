@@ -4,21 +4,21 @@ export interface SheetbotTask {
   name?: string;
   script: string;
   status: 0 | 1 | 2 | 3 | 4;
-  data: Record<string, any>;
+  data: string | Record<string, any>;
   artefacts: string[];
   dependsOn: string[];
   transitions: any[];
-  type: 'deno' | 'python' | 'bash';
-  capabilitiesSchema?: Record<string, any>;
+  type: 'deno' | 'python' | 'bash' | 'freedos-bat';
+  capabilitiesSchema?: string | Record<string, any>;
 }
 
 export interface SheetbotTaskCreate {
   script: string;
   name?: string;
   id?: string;
-  data?: Record<string, any>;
-  capabilitiesSchema?: Record<string, any>;
-  type?: 'deno' | 'python' | 'bash';
+  data?: string | Record<string, any>;
+  capabilitiesSchema?: string | Record<string, any>;
+  type?: 'deno' | 'python' | 'bash' | 'freedos-bat';
   transitions?: any[];
   dependsOn?: string[];
   status?: 0 | 1 | 2 | 3 | 4;
@@ -96,13 +96,26 @@ export class SheetbotAPI {
 
     let fetchOptions: RequestInit = { ...options };
 
-    if (options.body && typeof options.body === 'object' && !(options.body instanceof FormData)) {
-      headers['Content-Type'] = 'application/json';
-      fetchOptions = {
-        ...options,
-        headers,
-        body: JSON.stringify(options.body as object)
-      };
+    if (options.body) {
+      if (typeof options.body === 'object' && !(options.body instanceof FormData)) {
+        headers['Content-Type'] = 'application/json';
+        fetchOptions = {
+          ...options,
+          headers,
+          body: JSON.stringify(options.body as object)
+        };
+      } else if (typeof options.body === 'string' && !headers['Content-Type']) {
+        headers['Content-Type'] = 'application/json';
+        fetchOptions = {
+          ...options,
+          headers
+        };
+      } else {
+        fetchOptions = {
+          ...options,
+          headers
+        };
+      }
     } else {
       fetchOptions = {
         ...options,
