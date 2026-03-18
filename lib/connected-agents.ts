@@ -1,7 +1,25 @@
+/**
+ * Connected Agents Store
+ * 
+ * Manages external agents that connect to ObservableCAFE via REST API.
+ * External agents can:
+ * - Subscribe to sessions to receive events (join/leave notifications)
+ * - Join sessions to read context and produce chunks
+ * 
+ * Security:
+ * - Agents authenticate via API keys (sk-agent-*)
+ * - Session access is validated against in-memory state and database
+ * - canProduceChunk/canReadChunks determine what agents can do
+ */
+
 import { Chunk, createNullChunk } from './chunk.js';
 import { getSession } from '../core.js';
 import { Database } from './database.js';
 
+/**
+ * Represents an external agent connected to the system.
+ * API keys are stored but hashed/regenerated for security.
+ */
 export interface ConnectedAgent {
   id: string;
   name: string;
@@ -10,32 +28,47 @@ export interface ConnectedAgent {
   createdAt: number;
 }
 
+/**
+ * Session modes for connected agents:
+ * - subscribed: Agent receives event notifications only
+ * - joined: Agent can read session context and produce chunks
+ */
 export type AgentSessionMode = 'subscribed' | 'joined';
 
+/**
+ * Associates an agent with a specific session.
+ */
 export interface AgentSession {
   sessionId: string;
   mode: AgentSessionMode;
 }
 
+/**
+ * Manages connected agents and their session associations.
+ * Provides registration, session management, and event emission.
+ */
 export class ConnectedAgentStore {
+  // In-memory stores for fast access
   private agents = new Map<string, ConnectedAgent>();
   private apiKeyToAgentId = new Map<string, string>();
   private agentSessions = new Map<string, Set<AgentSession>>();
   private trustDb: Database | null = null;
 
+  /**
+   * Initialize the store with a database for persistence.
+   * Loads existing session mappings from database.
+   */
   setTrustDatabase(db: Database): void {
     this.trustDb = db;
     this.loadFromDatabase();
   }
 
+  /**
+   * Load session mappings from persistent storage.
+   * API keys cannot be recovered from hash, so we use in-memory store as source of truth.
+   */
   private loadFromDatabase(): void {
     if (!this.trustDb) return;
-
-    // Load agents from database (without API keys - they are hashed)
-    // We need to regenerate API keys for in-memory store
-    // Actually, we can't recover API keys from hash - so we need a different approach
-    // For now, we'll keep the in-memory store as the source of truth for active sessions
-    // and only persist session mappings to DB
 
     // Load session mappings from DB
     for (const agentId of this.agents.keys()) {
@@ -44,6 +77,11 @@ export class ConnectedAgentStore {
     }
   }
 
+  /**
+   * Register a new connected agent.
+   * Generates a unique API key (sk-agent-*) for authentication.
+   * Returns the agent info including the generated API key.
+   */
   register(name: string, description?: string): ConnectedAgent {
     const id = `agent-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
     const apiKey = `sk-agent-${crypto.randomUUID()}`;
@@ -250,6 +288,11 @@ export class ConnectedAgentStore {
     return false;
   }
 
+  /**
+   * Emit an agent lifecycle event to the session's output stream.
+   * Events are sent as null chunks with the event data in annotations.
+   * This allows UI and other components to react to agent join/leave.
+   */
   private emitAgentEvent(
     session: any,
     agentId: string,

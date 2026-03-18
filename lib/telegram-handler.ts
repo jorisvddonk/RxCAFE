@@ -1,3 +1,35 @@
+/**
+ * Telegram Handler
+ * 
+ * Integrates ObservableCAFE with Telegram for mobile messaging.
+ * 
+ * Features:
+ * - Polling or webhook mode for message reception
+ * - Session management per user
+ * - Slash commands (/new, /reset, /sessions, /agents, etc.)
+ * - Voice message transcription
+ * - Image processing
+ * - Real-time streaming responses with typing indicators
+ * - Automatic retry with debouncing for edit flooding
+ * 
+ * State Management:
+ * - currentSession: Maps Telegram user ID to current session ID
+ * - allSessions: Maps user ID to set of their session IDs
+ * - subscriptions: Maps user ID to session subscriptions for SSE forwarding
+ * 
+ * Commands:
+ * - /new <agent>   Create new session with optional agent
+ * - /reset          Reset current session
+ * - /sessions       List user's sessions
+ * - /session <id>  Switch to another session
+ * - /agents         List available agents
+ * - /search <query> Web search and respond
+ * - /fetch <url>    Fetch and summarize web page
+ * - /trust          Trust last AI response
+ * - /untrust       Untrust last AI response
+ * - /help           Show help
+ */
+
 import { createBinaryChunk, type Chunk } from './chunk.js';
 import type { Session } from '../core.js';
 import { TelegramBot, type TelegramUser, type TelegramConfig, type TelegramVoice, type TelegramAudio } from './telegram.js';

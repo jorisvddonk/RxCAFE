@@ -1,3 +1,27 @@
+/**
+ * CLI Handler
+ * 
+ * Processes command-line arguments for server management tasks.
+ * Handles token generation, trust management, and preset operations.
+ * 
+ * Usage: bun start -- <command>
+ * 
+ * Supported commands:
+ * - --help, -h                    Show help message
+ * - --generate-token [desc]       Generate new API token
+ * - --generate-token [desc] --admin  Generate admin token
+ * - --trust <token> [desc]        Trust an API token
+ * - --list-clients                List trusted clients
+ * - --revoke <id>                 Revoke client access
+ * - --token-admin <id>             Toggle admin status
+ * - --trust-telegram <id|username> Trust Telegram user
+ * - --untrust-telegram <id|username> Remove Telegram user
+ * - --list-telegram-users         List trusted Telegram users
+ * - --create-preset <name>         Create agent preset
+ * - --list-presets                List presets
+ * - --delete-preset <name>         Delete preset
+ */
+
 import { Database, maskToken } from './database.js';
 
 interface CliHandlerResult {

@@ -1,3 +1,10 @@
+/**
+ * Evaluator Utilities
+ * 
+ * Common patterns for processing chunks with LLM evaluators.
+ * Provides higher-order functions that return RxJS operators.
+ */
+
 import type { AgentEvaluator, AgentSessionContext } from '../lib/agent.js';
 import type { Chunk } from '../lib/chunk.js';
 import { createTextChunk, createNullChunk, annotateChunk } from '../lib/chunk.js';
@@ -5,8 +12,18 @@ import { Observable } from '../lib/stream.js';
 import { buildConversationContext } from '../core.js';
 
 /**
- * Standard utility to process a chunk with an LLM evaluator and return a streaming response.
- * Handles context building, null chunk generation signals, token streaming, and history persistence.
+ * Complete a chat turn by generating an LLM response.
+ * 
+ * This is the standard pattern for generating assistant responses:
+ * 1. Builds conversation context from history (excluding current chunk)
+ * 2. Creates a prompt with context + current message
+ * 3. Streams tokens from LLM evaluator
+ * 4. Emits chunks via subscriber and calls session callbacks
+ * 
+ * @param chunk - The user input chunk to respond to
+ * @param evaluator - The LLM evaluator to generate with
+ * @param session - The session context for history and callbacks
+ * @returns Observable that emits the assistant response chunk
  */
 export function completeTurnWithLLM(
   chunk: Chunk,

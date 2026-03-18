@@ -119,6 +119,7 @@ export class SessionStore {
   }
   
   async saveHistory(sessionId: string, history: Chunk[]): Promise<void> {
+    // Clear existing chunks for this session before saving new ones
     const deleteStmt = this.db.prepare(`DELETE FROM session_chunks WHERE session_id = ?`);
     deleteStmt.run(sessionId);
     deleteStmt.finalize();
@@ -129,7 +130,10 @@ export class SessionStore {
     `);
     
     for (const chunk of history) {
-      // Handle binary data for JSON storage
+      // ===== BINARY DATA HANDLING =====
+      // SQLite JSON storage cannot handle Uint8Array directly.
+      // Convert binary content to Base64 string for JSON serialization.
+      // The _isBase64 flag signals loadHistory() to restore the Uint8Array.
       let serializedChunk = chunk;
       if (chunk.contentType === 'binary' && chunk.content && (chunk.content as any).data instanceof Uint8Array) {
         const binaryContent = chunk.content as any;
@@ -152,6 +156,7 @@ export class SessionStore {
     
     insertStmt.finalize();
     
+    // Update session's updated_at timestamp
     const updateStmt = this.db.prepare(`UPDATE agent_sessions SET updated_at = ? WHERE id = ?`);
     updateStmt.run(Date.now(), sessionId);
     updateStmt.finalize();
@@ -169,7 +174,10 @@ export class SessionStore {
     
     return results.map(r => {
       const chunk = JSON.parse(r.chunk_json) as Chunk;
-      // Restore binary data from Base64
+      
+      // ===== RESTORE BINARY DATA =====
+      // Check for _isBase64 flag (set during saveHistory).
+      // Decode Base64 string back to Uint8Array for binary chunks.
       if (chunk.contentType === 'binary' && chunk.content && (chunk.content as any)._isBase64) {
         const binaryContent = chunk.content as any;
         return {
