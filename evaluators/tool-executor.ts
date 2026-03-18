@@ -1,3 +1,17 @@
+/**
+ * Tool Executor Evaluator
+ * Detects and executes tool calls from LLM output
+ * 
+ * Architecture:
+ * 1. ToolCallDetector evaluates text chunks for <|tool_call|> patterns
+ * 2. ToolExecutor receives chunks with tool-detection annotation
+ * 3. Executes detected tools in parallel via Promise.all
+ * 4. Formats results as text chunks and emits alongside original chunk
+ * 
+ * Supported tools: rollDice, bash, readFile, writeFile, updateFile,
+ * listDirectory, glob, webSearch, webFetch, knowledge*, git, sheetbot*, getWeather
+ */
+
 import type { Chunk } from '../lib/chunk.js';
 import { createTextChunk } from '../lib/chunk.js';
 import { Observable } from '../lib/stream.js';
@@ -25,13 +39,22 @@ import {
 } from '../tools/sheetbot.js';
 import { WeatherTool } from '../tools/weather.js';
 
+/**
+ * Base interface for all tools in the system.
+ * Tools receive parameters and return any serializable result.
+ */
 export interface Tool {
   name: string;
   execute(params: any): any;
   systemPrompt?: string;
 }
 
-const ALL_TOOLS: Map<string, Tool> = new Map([
+/**
+ * Central registry of all available tools.
+ * Maps tool names to instantiated tool instances.
+ * Used by executeTools() to find and run tools.
+ */
+const ALL_TOOLS = new Map<string, Tool>([
   ['rollDice', new DieRollerTool()],
   ['bash', new BashTool()],
   ['readFile', new ReadFileTool()],
@@ -136,11 +159,19 @@ export function executeTools(options: ExecuteToolsOptions = {}) {
   };
 }
 
+/**
+ * Formats tool execution results into human-readable text.
+ * Each tool type has its own output format optimized for display.
+ * Results are shown to users in the chat interface.
+ */
 function formatToolResult(toolName: string, result: any): string {
+
+  // ===== DICE ROLLING =====
   if (toolName === 'rollDice') {
     return `${result.expression}: ${result.rolls.join(' + ')} = ${result.total}`;
   }
 
+  // ===== BASH EXECUTION =====
   if (toolName === 'bash') {
     let output = '';
     if (result.timedOut) {
@@ -158,6 +189,7 @@ function formatToolResult(toolName: string, result: any): string {
     return output || '(no output)';
   }
 
+  // ===== FILE OPERATIONS =====
   if (toolName === 'readFile') {
     if (result.error) return `Error: ${result.error}`;
     return `[${result.path}] (${result.size} bytes)\n${result.content}`;
@@ -182,6 +214,7 @@ function formatToolResult(toolName: string, result: any): string {
     return `Matches (${result.matches.length}):\n${result.matches.join('\n')}`;
   }
 
+  // ===== WEB ACCESS =====
   if (toolName === 'webSearch') {
     if (result.error) return `Error: ${result.error}`;
     if (result.results.length === 0) return 'No results found';
@@ -195,6 +228,7 @@ function formatToolResult(toolName: string, result: any): string {
     return `[${result.url}]\n${result.title ? result.title + '\n' : ''}${result.content}`;
   }
 
+  // ===== KNOWLEDGE BASE =====
   if (toolName === 'knowledgeWrite') {
     if (result.error) return `Error: ${result.error}`;
     return `Stored entry #${result.id} successfully`;
@@ -222,20 +256,24 @@ function formatToolResult(toolName: string, result: any): string {
       ).join('\n');
   }
 
+  // ===== GIT =====
   if (toolName === 'git') {
     if (result.stderr) return `Error: ${result.stderr}`;
     return result.stdout || '(no output)';
   }
 
+  // ===== SHEETBOT (Spreadsheet/Script Integration) =====
   const sheetbotTools = ['sheetbot_list_sheets', 'sheetbot_get_sheet', 'sheetbot_list_tasks', 'sheetbot_get_task', 'sheetbot_create_task', 'sheetbot_delete_task', 'sheetbot_list_agents', 'sheetbot_list_library'];
   if (sheetbotTools.includes(toolName)) {
     if (result.error) return `Error: ${result.error}`;
     
+    // List available sheets
     if (result.sheets) {
       if (result.sheets.length === 0) return 'No sheets found';
       return `Sheets (${result.count}):\n${result.sheets.join('\n')}`;
     }
     
+    // Get sheet data (columns and rows)
     if (result.columns) {
       let output = `Sheet: ${result.sheet}\nColumns: ${result.columns.join(', ')}\nRows: ${result.rowCount}${result.truncated ? ' (showing first 20)' : ''}\n\n`;
       result.rows.forEach((row: any, i: number) => {
@@ -244,6 +282,7 @@ function formatToolResult(toolName: string, result: any): string {
       return output;
     }
 
+    // List library scripts
     if (result.scripts) {
       if (result.scripts.length === 0) return 'No library scripts found';
       let output = `Library (${result.count} scripts):\n\n`;
@@ -260,6 +299,7 @@ function formatToolResult(toolName: string, result: any): string {
       return output;
     }
     
+    // List connected agents
     if (result.agents) {
       let output = `Agents (${result.activeAgents} active, ${result.totalUniqueAgents} total):\n\n`;
       result.agents.forEach((a: any) => {
@@ -272,6 +312,7 @@ function formatToolResult(toolName: string, result: any): string {
       return output;
     }
     
+    // List or manage tasks
     if (result.tasks) {
       if (result.tasks.length === 0) return 'No tasks found';
       const lines = result.tasks.map((t: any) => 
@@ -280,20 +321,25 @@ function formatToolResult(toolName: string, result: any): string {
       return `Tasks (${result.count}):\n${lines.join('\n')}`;
     }
     
+    // Generic message response
     if (result.message) return result.message;
     
+    // Single task details
     if (result.id) {
       return `Task ${result.id}\nName: ${result.name}\nStatus: ${result.status}`;
     }
     
+    // Fallback: pretty-print JSON
     return JSON.stringify(result, null, 2);
   }
 
+  // ===== WEATHER =====
   if (toolName === 'getWeather') {
     const weatherTool = ALL_TOOLS.get('getWeather') as WeatherTool;
     return weatherTool.formatResult(result);
   }
 
+  // ===== FALLBACK =====
   return JSON.stringify(result, null, 2);
 }
 

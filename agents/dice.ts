@@ -23,13 +23,27 @@ interface DiceState {
   llmComments: boolean;
 }
 
+/**
+ * Parse dice notation into individual rolls.
+ * 
+ * Supported formats:
+ * - Basic: 2d6, 1d20+5, 3d10-2
+ * - Keep highest: 4d6kh3 (roll 4d6, keep highest 3)
+ * - Keep lowest: 4d6kl2 (roll 4d6, keep lowest 2)
+ * - Multiple groups: 2d6+1d8 (roll 2d6 and 1d8)
+ * 
+ * @param notation - Dice notation string (e.g., "2d6+5")
+ * @returns Object with dice array, diceTypes, modifier, or error
+ */
 function parseDiceNotation(notation: string): { dice: number[]; diceTypes: string[]; modifier: number; error?: string } {
   const dice: number[] = [];
   const diceTypes: string[] = [];
   let modifier = 0;
 
+  // Normalize input: lowercase, remove whitespace
   const cleaned = notation.toLowerCase().replace(/\s+/g, '');
 
+  // ===== EXTRACT MODIFIER =====
   // Handle modifiers at the end: +5, -2, +5-3 (last one wins)
   const modifierMatch = cleaned.match(/([+-]\d+)$/);
   if (modifierMatch) {
@@ -48,6 +62,7 @@ function parseDiceNotation(notation: string): { dice: number[]; diceTypes: strin
   while (remaining.length > 0) {
     let matched = false;
 
+    // ===== KEEP HIGHEST (kh) =====
     // Try to match XdYkhZ (keep highest)
     const khMatch = remaining.match(/^(\d+)d(\d+)kh(\d+)/);
     if (khMatch) {
@@ -56,10 +71,12 @@ function parseDiceNotation(notation: string): { dice: number[]; diceTypes: strin
       const keep = parseInt(khMatch[3], 10);
       const groupDice: number[] = [];
       const groupTypes: string[] = [];
+      // Roll the dice
       for (let i = 0; i < count; i++) {
         groupDice.push(Math.floor(Math.random() * sides) + 1);
         groupTypes.push(`d${sides}`);
       }
+      // Sort descending and keep highest
       groupDice.sort((a, b) => b - a);
       groupTypes.splice(keep); // Keep only the types for kept dice
       while (groupDice.length > keep) groupDice.pop();
@@ -69,6 +86,7 @@ function parseDiceNotation(notation: string): { dice: number[]; diceTypes: strin
       continue;
     }
 
+    // ===== KEEP LOWEST (kl) =====
     // Try to match XdYklZ (keep lowest)
     const klMatch = remaining.match(/^(\d+)d(\d+)kl(\d+)/);
     if (klMatch) {
@@ -77,10 +95,12 @@ function parseDiceNotation(notation: string): { dice: number[]; diceTypes: strin
       const keep = parseInt(klMatch[3], 10);
       const groupDice: number[] = [];
       const groupTypes: string[] = [];
+      // Roll the dice
       for (let i = 0; i < count; i++) {
         groupDice.push(Math.floor(Math.random() * sides) + 1);
         groupTypes.push(`d${sides}`);
       }
+      // Sort ascending and keep lowest
       groupDice.sort((a, b) => a - b);
       groupTypes.splice(keep);
       while (groupDice.length > keep) groupDice.pop();
@@ -90,6 +110,7 @@ function parseDiceNotation(notation: string): { dice: number[]; diceTypes: strin
       continue;
     }
 
+    // ===== STANDARD DICE (XdY) =====
     // Try to match XdY
     const standardMatch = remaining.match(/^(\d+)d(\d+)/);
     if (standardMatch) {
@@ -109,6 +130,7 @@ function parseDiceNotation(notation: string): { dice: number[]; diceTypes: strin
       continue;
     }
 
+    // ===== SINGLE DIE (dX) =====
     // Try to match dX (single die)
     const singleMatch = remaining.match(/^d(\d+)/);
     if (singleMatch) {
@@ -120,6 +142,7 @@ function parseDiceNotation(notation: string): { dice: number[]; diceTypes: strin
       continue;
     }
 
+    // ===== SKIP SEPARATORS =====
     // Skip + or - between dice groups
     if (remaining[0] === '+' || remaining[0] === '-') {
       remaining = remaining.slice(1);
@@ -127,6 +150,7 @@ function parseDiceNotation(notation: string): { dice: number[]; diceTypes: strin
       continue;
     }
 
+    // ===== ERROR HANDLING =====
     if (!matched) {
       if (remaining.length > 0) {
         return { dice: [], diceTypes: [], modifier: 0, error: `Invalid dice notation: ${notation}` };
@@ -135,13 +159,14 @@ function parseDiceNotation(notation: string): { dice: number[]; diceTypes: strin
     }
   }
 
-  // Combine all groups
+  // ===== COMBINE ALL GROUPS =====
   for (const group of groups) {
     dice.push(...group.dice);
     diceTypes.push(...group.diceTypes);
     modifier += group.modifier;
   }
 
+  // Validate result
   if (dice.length === 0 && dicePart.length > 0) {
     return { dice: [], diceTypes: [], modifier: 0, error: `Invalid dice notation: ${notation}` };
   }

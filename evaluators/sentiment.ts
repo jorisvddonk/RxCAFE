@@ -1,8 +1,22 @@
+/**
+ * Sentiment Analysis Evaluator
+ * 
+ * Analyzes text chunks for sentiment using an LLM.
+ * Returns annotated chunks with score (-1.0 to 1.0) and explanation.
+ * 
+ * The analyzer uses temperature=0 for deterministic JSON extraction.
+ * Results are emitted to both the pipeline and session output stream
+ * for persistent storage.
+ */
+
 import type { AgentSessionContext } from '../lib/agent.js';
 import type { Chunk } from '../lib/chunk.js';
 import { createTextChunk, annotateChunk } from '../lib/chunk.js';
 import { Observable } from '../lib/stream.js';
 
+/**
+ * Result of sentiment analysis
+ */
 export interface SentimentAnalysis {
   score: number;
   explanation: string;
@@ -14,6 +28,7 @@ export interface SentimentAnalysis {
  */
 export function analyzeSentiment(session: AgentSessionContext) {
   // Encapsulate the specialized evaluator logic inside the helper
+  // Use temperature=0 for deterministic JSON output
   const evaluator = session.createLLMChunkEvaluator({ 
     temperature: 0, 
     maxTokens: 150 

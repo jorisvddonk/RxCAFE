@@ -1,3 +1,13 @@
+/**
+ * Time Ticker Agent
+ * 
+ * Simple background agent that outputs the current time every hour.
+ * Demonstrates the background agent pattern with scheduled callbacks.
+ * 
+ * No configuration required (configSchema is empty).
+ * Automatically starts on server boot (startInBackground: true).
+ */
+
 import type { AgentDefinition, AgentSessionContext } from '../lib/agent.js';
 import { createTextChunk } from '../lib/chunk.js';
 
