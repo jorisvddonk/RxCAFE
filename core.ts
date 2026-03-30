@@ -386,7 +386,9 @@ export async function createSession(
           console.log(`[Core] Session ${session.id} runtime config BEFORE:`, session.runtimeConfig);
           console.log(`[Core] Session ${session.id} runtime config AFTER (from chunk):`, newConfig);
           console.log(`[Core] Session ${session.id} voice from chunk:`, newConfig.voice);
-          session.runtimeConfig = newConfig;
+          
+          // Merge new config with existing config (partial updates preserve existing values)
+          session.runtimeConfig = { ...session.runtimeConfig, ...newConfig };
           
           // Update session-level settings from runtime config
           if (session.runtimeConfig.backend) session.backend = session.runtimeConfig.backend;
