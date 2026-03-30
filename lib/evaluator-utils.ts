@@ -69,6 +69,7 @@ export function completeTurnWithLLM(
       'llm.parent-chunk-id': chunk.id
     }));
     
+    const assistantChunkId = crypto.randomUUID();
     let fullResponse = '';
     
     (async () => {
@@ -78,7 +79,7 @@ export function completeTurnWithLLM(
             const token = tokenChunk.content as string;
             fullResponse += token;
             if (session.callbacks?.onToken) {
-              session.callbacks.onToken(token);
+              session.callbacks.onToken(token, assistantChunkId);
             }
           }
         }
@@ -86,6 +87,7 @@ export function completeTurnWithLLM(
         const assistantChunk = createTextChunk(fullResponse, 'com.rxcafe.assistant', {
           'chat.role': 'assistant'
         });
+        (assistantChunk as any).id = assistantChunkId;
         
         subscriber.next(assistantChunk);
         

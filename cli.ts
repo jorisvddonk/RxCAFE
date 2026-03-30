@@ -157,7 +157,7 @@ function prompt() {
     addChunkToSession(session, { ...userChunk, emit: true });
     
     session.callbacks = {
-      onToken: (token) => {
+      onToken: (token, _chunkId) => {
         process.stdout.write(token);
       },
       onFinish: () => {

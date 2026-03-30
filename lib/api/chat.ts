@@ -59,8 +59,8 @@ export async function handleChatStream(sessionId: string, message: string, isAdm
         session,
         message,
         {
-          onToken: (token: string) => {
-            try { controller.enqueue(`data: ${JSON.stringify({ type: 'token', token })}\n\n`); } catch { /* closed */ }
+          onToken: (token: string, chunkId: string) => {
+            try { controller.enqueue(`data: ${JSON.stringify({ type: 'token', token, chunkId })}\n\n`); } catch { /* closed */ }
           },
           onFinish: () => {
             try { controller.enqueue(`data: ${JSON.stringify({ type: 'finish' })}\n\n`); controller.enqueue(`data: ${JSON.stringify({ type: 'done' })}\n\n`); controller.close(); } catch { /* closed */ }

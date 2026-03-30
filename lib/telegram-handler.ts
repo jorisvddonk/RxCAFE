@@ -572,7 +572,7 @@ async function handleChatMessage(chatId: number, session: Session, message: stri
       session,
       message,
       {
-        onToken: (token: string) => {
+        onToken: (token: string, _chunkId: string) => {
           fullResponse += token;
 
           if (fullResponse.length - lastUpdateResponse.length >= 20 && !updateInProgress) {
