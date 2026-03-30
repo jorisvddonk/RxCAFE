@@ -235,8 +235,8 @@ export async function createSession(
     history: session.history,
     config,
     sessionConfig: {},
-    systemPrompt: session.systemPrompt,
     trustedChunks: session.trustedChunks,
+    get systemPrompt() { return session.systemPrompt; },
     get callbacks() { return session.callbacks; },
     set callbacks(val) { session.callbacks = val; },
     get runtimeConfig() { return session.runtimeConfig; },
@@ -530,8 +530,8 @@ export async function reloadSessionAgent(sessionId: string, config: CoreConfig):
     history: session.history,
     config,
     sessionConfig: {},
-    systemPrompt: session.systemPrompt,
     trustedChunks: session.trustedChunks,
+    get systemPrompt() { return session.systemPrompt; },
     get callbacks() { return session.callbacks; },
     set callbacks(val) { session.callbacks = val; },
     get runtimeConfig() { 
@@ -899,9 +899,23 @@ export function createTrustFilter(): Evaluator {
 export function buildConversationContext(history: Chunk[], excludeChunkId?: string, systemPrompt?: string | null): string {
   const contextParts: string[] = [];
   
+  // Extract system prompt from the most recent runtime config chunk that sets it,
+  // falling back to the passed systemPrompt parameter
+  let effectiveSystemPrompt = systemPrompt;
+  for (let i = history.length - 1; i >= 0; i--) {
+    const chunk = history[i];
+    if (chunk.contentType === 'null' && chunk.annotations['config.type'] === 'runtime') {
+      const configPrompt = chunk.annotations['config.systemPrompt'];
+      if (configPrompt) {
+        effectiveSystemPrompt = String(configPrompt);
+        break;
+      }
+    }
+  }
+  
   // Add system prompt at the top
-  if (systemPrompt) {
-    contextParts.push(`System: ${systemPrompt}`);
+  if (effectiveSystemPrompt) {
+    contextParts.push(`System: ${effectiveSystemPrompt}`);
   }
   
   // Process each chunk in history
