@@ -239,6 +239,7 @@ export async function createSession(
     trustedChunks: session.trustedChunks,
     get callbacks() { return session.callbacks; },
     set callbacks(val) { session.callbacks = val; },
+    get runtimeConfig() { return session.runtimeConfig; },
     
     createLLMChunkEvaluator: (backendOrParams?: LLMBackend | LLMParams, model?: string, params?: LLMParams): AgentEvaluator => {
       let b: LLMBackend;
@@ -380,9 +381,11 @@ export async function createSession(
         // Null chunks with 'config.type: runtime' update session config dynamically.
         // This allows runtime changes to backend, model, system prompt, and LLM params.
         if (chunk.contentType === 'null' && chunk.annotations?.['config.type'] === 'runtime') {
+          console.log(`[Core] Processing runtime config chunk:`, chunk.annotations);
           const newConfig = extractRuntimeConfigFromChunk(chunk);
           console.log(`[Core] Session ${session.id} runtime config BEFORE:`, session.runtimeConfig);
           console.log(`[Core] Session ${session.id} runtime config AFTER (from chunk):`, newConfig);
+          console.log(`[Core] Session ${session.id} voice from chunk:`, newConfig.voice);
           session.runtimeConfig = newConfig;
           
           // Update session-level settings from runtime config
@@ -529,7 +532,9 @@ export async function reloadSessionAgent(sessionId: string, config: CoreConfig):
     trustedChunks: session.trustedChunks,
     get callbacks() { return session.callbacks; },
     set callbacks(val) { session.callbacks = val; },
-    get runtimeConfig() { return session.runtimeConfig; },
+    get runtimeConfig() { 
+      return session.runtimeConfig; 
+    },
     
     createLLMChunkEvaluator: (backendOrParams?: LLMBackend | LLMParams, model?: string, params?: LLMParams): AgentEvaluator => {
       let b: LLMBackend;

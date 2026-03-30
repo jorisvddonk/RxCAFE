@@ -124,21 +124,43 @@ export async function handleAddChunk(sessionId: string, options: AddChunkOptions
   if (isRuntimeConfig && options.annotations) {
     const agent = getAgent(session.agentName);
     if (agent?.configSchema) {
-      const runtimeConfig: RuntimeSessionConfig = {
-        backend: options.annotations['config.backend'],
-        model: options.annotations['config.model'],
-        systemPrompt: options.annotations['config.systemPrompt'],
+      console.log('[addchunk] session.backend:', session.backend, 'session.model:', session.model);
+      console.log('[addchunk] session.runtimeConfig:', session.runtimeConfig);
+      const existingConfig: Record<string, any> = {
+        backend: session.backend,
+        model: session.model,
+        systemPrompt: session.systemPrompt,
       };
+      if (session.runtimeConfig.llmParams) existingConfig.llmParams = session.runtimeConfig.llmParams;
+      if (session.runtimeConfig.voice) existingConfig.voice = session.runtimeConfig.voice;
+      
+      const runtimeConfig: Record<string, any> = {};
+      
+      const backend = options.annotations['config.backend'] || existingConfig.backend;
+      const model = options.annotations['config.model'] || existingConfig.model;
+      const systemPrompt = options.annotations['config.systemPrompt'] || existingConfig.systemPrompt;
+      
+      if (backend) runtimeConfig.backend = backend;
+      if (model) runtimeConfig.model = model;
+      if (systemPrompt) runtimeConfig.systemPrompt = systemPrompt;
       
       const llmParams: any = {};
       const llmKeys = ['temperature', 'maxTokens', 'topP', 'topK', 'repeatPenalty', 'stop', 'seed', 'maxContextLength', 'numCtx'];
       for (const key of llmKeys) {
         const val = options.annotations[`config.llm.${key}`];
         if (val !== undefined) llmParams[key] = val;
+        else if (existingConfig.llmParams) llmParams[key] = existingConfig.llmParams[key];
       }
       if (Object.keys(llmParams).length > 0) runtimeConfig.llmParams = llmParams;
       
+      if (options.annotations['config.voice']) {
+        runtimeConfig.voice = options.annotations['config.voice'];
+      } else if (existingConfig.voice) {
+        runtimeConfig.voice = existingConfig.voice;
+      }
+      
       const errors = await validateConfigAgainstSchema(runtimeConfig, agent.configSchema);
+      console.log('[addchunk] validation errors:', errors);
       if (errors.length > 0) {
         return new Response(JSON.stringify({ 
           error: 'Invalid configuration',

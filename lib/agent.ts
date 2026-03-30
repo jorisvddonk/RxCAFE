@@ -53,6 +53,8 @@ export interface AgentSessionContext {
   sessionConfig: SessionConfig;
   systemPrompt: string | null;
   
+  runtimeConfig: RuntimeSessionConfig;
+  
   createLLMChunkEvaluator(params?: LLMParams): AgentEvaluator;
   createLLMChunkEvaluator(backend: LLMBackend, model?: string, params?: LLMParams): AgentEvaluator;
   
@@ -116,6 +118,7 @@ export interface RuntimeSessionConfig {
   model?: string;
   llmParams?: LLMParams;
   systemPrompt?: string;
+  voice?: any;
 }
 
 export function extractRuntimeConfigFromChunk(configChunk: Chunk): RuntimeSessionConfig {
@@ -124,6 +127,7 @@ export function extractRuntimeConfigFromChunk(configChunk: Chunk): RuntimeSessio
     model: configChunk.annotations['config.model'],
     llmParams: extractLLMParamsFromChunk(configChunk),
     systemPrompt: configChunk.annotations['config.systemPrompt'],
+    voice: configChunk.annotations['config.voice'],
   };
 }
 

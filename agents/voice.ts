@@ -29,6 +29,24 @@ export const voiceAgent: AgentDefinition = {
       backend: { type: 'string', description: 'LLM backend (kobold, ollama, or llamacpp)', default: 'ollama' },
       model: { type: 'string', description: 'Model name' },
       systemPrompt: { type: 'string', description: 'System prompt' },
+      voice: {
+        type: 'object',
+        description: 'Voice TTS configuration',
+        properties: {
+          backend: { type: 'string', enum: ['coqui', 'voicebox'], default: 'voicebox' },
+          voices: { type: 'object', description: 'Map of voice types to profile IDs' },
+          ttsEndpoint: { type: 'string', description: 'TTS endpoint URL' },
+          voicebox: {
+            type: 'object',
+            properties: {
+              engine: { type: 'string', enum: ['qwen', 'luxtts', 'chatterbox', 'chatterbox_turbo'], default: 'qwen' },
+              normalize: { type: 'boolean', default: true },
+              maxChunkChars: { type: 'number', default: 800 },
+              crossfadeMs: { type: 'number', default: 50 }
+            }
+          }
+        }
+      },
       llmParams: {
         type: 'object',
         properties: {

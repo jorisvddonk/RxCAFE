@@ -1,7 +1,7 @@
 import type { AgentSessionContext } from '../lib/agent.js';
 import type { Chunk } from '../lib/chunk.js';
 import { createBinaryChunk, annotateChunk } from '../lib/chunk.js';
-import { filter, concatMap, of, Observable } from '../lib/stream.js';
+import { filter, of, Observable } from '../lib/stream.js';
 import { mkdirSync, existsSync, writeFileSync } from 'fs';
 import { join } from 'path';
 
@@ -14,6 +14,13 @@ interface VoiceSettings {
     speed_factor?: number;
   };
   ttsEndpoint?: string;
+  backend: 'coqui' | 'voicebox';
+  voicebox?: {
+    engine?: 'qwen' | 'luxtts' | 'chatterbox' | 'chatterbox_turbo';
+    normalize?: boolean;
+    maxChunkChars?: number;
+    crossfadeMs?: number;
+  };
 }
 
 const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
@@ -33,7 +40,14 @@ const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
     cfg_weight: 1.0,
     speed_factor: 1.0
   },
-  ttsEndpoint: 'http://localhost:8000/tts'
+  ttsEndpoint: 'http://127.0.0.1:17493',
+  backend: 'voicebox',
+  voicebox: {
+    engine: 'qwen',
+    normalize: true,
+    maxChunkChars: 800,
+    crossfadeMs: 50
+  }
 };
 
 export interface ParsedVoiceItem {
@@ -61,12 +75,19 @@ export function generateVoice(session: AgentSessionContext) {
             return;
           }
 
-          const runtimeConfig = session.config.sessionConfig || {};
+          console.log('[VoiceEvaluator] session id:', session.id);
+          console.log('[VoiceEvaluator] session type:', typeof session);
+          const runtimeConfig = session.runtimeConfig || {};
+          console.log('[VoiceEvaluator] session.runtimeConfig:', JSON.stringify(runtimeConfig));
+          console.log('[VoiceEvaluator] runtimeConfig.voice:', runtimeConfig.voice);
+          console.log('[VoiceEvaluator] chunk.annotations[voice.config]:', chunk.annotations['voice.config']);
           const voiceConfig = chunk.annotations['voice.config'] ||
-                              runtimeConfig['config.voice'] ||
+                              runtimeConfig.voice ||
                               DEFAULT_VOICE_SETTINGS;
+          console.log('[VoiceEvaluator] voiceConfig (final):', JSON.stringify(voiceConfig.voices));
 
           const ttsEndpoint = voiceConfig.ttsEndpoint || DEFAULT_VOICE_SETTINGS.ttsEndpoint;
+          console.log('[VoiceEvaluator] ttsEndpoint:', ttsEndpoint);
 
           const parsedVoice = chunk.annotations['voice.parsed'] as ParsedVoiceItem[] | undefined;
           if (!parsedVoice || parsedVoice.length === 0) {
@@ -88,7 +109,9 @@ export function generateVoice(session: AgentSessionContext) {
                 item.content,
                 voiceFile,
                 voiceConfig.generation,
-                ttsEndpoint
+                ttsEndpoint,
+                voiceConfig.backend,
+                voiceConfig.voicebox
               );
 
               if (audioData) {
@@ -140,14 +163,44 @@ export function generateVoice(session: AgentSessionContext) {
 
 async function generateTTS(
   text: string,
-  voiceFile: string,
+  voiceId: string,
   generation: VoiceSettings['generation'],
-  endpoint: string
+  endpoint: string,
+  backend: VoiceSettings['backend'],
+  voiceboxOptions?: VoiceSettings['voicebox']
 ): Promise<Uint8Array | null> {
+  if (backend === 'voicebox') {
+    const url = `${endpoint}/generate/stream`;
+    const body = {
+      profile_id: voiceId,
+      text,
+      normalize: voiceboxOptions?.normalize ?? true,
+      max_chunk_chars: voiceboxOptions?.maxChunkChars ?? 800,
+      crossfade_ms: voiceboxOptions?.crossfadeMs ?? 50,
+      engine: voiceboxOptions?.engine ?? 'qwen'
+    };
+    console.log('[VoiceEvaluator] voicebox request:', url, body);
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+
+    console.log('[VoiceEvaluator] voicebox response status:', response.status, response.statusText);
+    if (!response.ok) {
+      console.error('[VoiceEvaluator] Voicebox TTS request failed:', response.statusText);
+      return null;
+    }
+
+    const blob = await response.blob();
+    return new Uint8Array(await blob.arrayBuffer());
+  }
+
   const body = {
     text,
     voice_mode: 'clone',
-    reference_audio_filename: voiceFile,
+    reference_audio_filename: voiceId,
     output_format: 'wav',
     ...generation
   };
