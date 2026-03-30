@@ -448,7 +448,8 @@ export class AfeWizard extends LitElement {
       // Known LLM backends
       generatedEnum = [
         { value: 'kobold', label: 'KoboldCPP' },
-        { value: 'ollama', label: 'Ollama' }
+        { value: 'ollama', label: 'Ollama' },
+        { value: 'llamacpp', label: 'LlamaCPP' }
       ];
     }
     if (!prop.enum && propName === 'model' && this.formData.backend) {
@@ -538,7 +539,7 @@ export class AfeWizard extends LitElement {
         }
       
       // Load models for default backend
-      if (formData.backend === 'ollama') {
+      if (formData.backend === 'ollama' || formData.backend === 'llamacpp') {
         this._loadOllamaModels();
       }
     }
@@ -573,8 +574,8 @@ export class AfeWizard extends LitElement {
     if (preset.systemPrompt) formData.systemPrompt = preset.systemPrompt;
     if (preset.llmParams) formData.llmParams = preset.llmParams;
     
-    // Load models if ollama backend
-    if (preset.backend === 'ollama') {
+    // Load models if ollama or llamacpp backend
+    if (preset.backend === 'ollama' || preset.backend === 'llamacpp') {
       this._loadOllamaModels();
     }
     
@@ -589,11 +590,11 @@ export class AfeWizard extends LitElement {
     console.log('[WIZARD] _loadOllamaModels called');
     this.loadingModels = true;
     try {
-      // Get token from window.RXCAFE_TOKEN if available
       const token = window.RXCAFE_TOKEN || '';
       const baseUrl = window.location.origin;
       const url = new URL('/api/models', baseUrl);
-      url.searchParams.set('backend', 'ollama');
+      const backend = this.formData.backend || 'ollama';
+      url.searchParams.set('backend', backend);
       if (token) {
         url.searchParams.set('token', token);
       }
@@ -613,7 +614,7 @@ export class AfeWizard extends LitElement {
 
   async _handleBackendChange(backend) {
     this.formData = { ...this.formData, backend };
-    if (backend === 'ollama') {
+    if (backend === 'ollama' || backend === 'llamacpp') {
       await this._loadOllamaModels();
     }
   }
@@ -647,8 +648,8 @@ export class AfeWizard extends LitElement {
           this.formData = { ...this.formData, backend: defaultBackend };
           console.log('[WIZARD] Step 1 - set formData.backend to:', defaultBackend);
           
-          // Load models if default is ollama
-          if (defaultBackend === 'ollama') {
+          // Load models if default is ollama or llamacpp
+          if (defaultBackend === 'ollama' || defaultBackend === 'llamacpp') {
             this._loadOllamaModels();
           }
         }
@@ -668,7 +669,7 @@ export class AfeWizard extends LitElement {
           this.error = 'Please select a backend';
           return;
         }
-        if (props.model && this.formData.backend === 'ollama' && !this.formData.model) {
+        if (props.model && (this.formData.backend === 'ollama' || this.formData.backend === 'llamacpp') && !this.formData.model) {
           this.error = 'Please select a model';
           return;
         }
@@ -841,7 +842,8 @@ export class AfeWizard extends LitElement {
               ? prop.enum.map(v => ({ value: v, label: v }))
               : [
                   { value: 'kobold', label: 'KoboldCPP' },
-                  { value: 'ollama', label: 'Ollama' }
+                  { value: 'ollama', label: 'Ollama' },
+                  { value: 'llamacpp', label: 'LlamaCPP' }
                 ];
             return html`
               <afe-radio
@@ -855,9 +857,9 @@ export class AfeWizard extends LitElement {
             `;
           }
           
-          // Handle model specially - if ollama, show dropdown with loaded models
+          // Handle model specially - if ollama or llamacpp, show dropdown with loaded models
           if (propName === 'model') {
-            const isOllama = this.formData.backend === 'ollama';
+            const isOllama = this.formData.backend === 'ollama' || this.formData.backend === 'llamacpp';
             if (isOllama) {
               const modelOptions = this.loadingModels 
                 ? [{ value: '', label: 'Loading...' }]
