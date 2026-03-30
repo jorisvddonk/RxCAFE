@@ -658,6 +658,54 @@ class RXCafeChat {
         }
     }
     
+    async deleteChunkFromInspector(chunkId, event) {
+        if (!this.sessionId) return;
+        
+        const shiftKey = event?.shiftKey;
+        const chunkIndex = this.rawChunks.findIndex(c => c.id === chunkId);
+        if (chunkIndex === -1) return;
+        
+        const chunksToDelete = shiftKey 
+            ? this.rawChunks.slice(chunkIndex)
+            : this.rawChunks.filter(c => c.id === chunkId);
+        
+        const message = shiftKey
+            ? `Delete this chunk and all ${chunksToDelete.length - 1} after it? This cannot be undone.`
+            : 'Delete this chunk? This cannot be undone.';
+        
+        if (!confirm(message)) return;
+        
+        try {
+            const idsToDelete = shiftKey
+                ? this.rawChunks.slice(chunkIndex).map(c => c.id)
+                : [chunkId];
+            
+            for (const id of idsToDelete) {
+                await fetch(this.apiUrl(`/api/session/${this.sessionId}/chunk/${id}`), {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+            }
+            
+            this.rawChunks = this.rawChunks.filter(c => !idsToDelete.includes(c.id));
+            
+            for (const id of idsToDelete) {
+                const chunkEl = this.chunkElements.get(id);
+                if (chunkEl) {
+                    chunkEl.remove();
+                    this.chunkElements.delete(id);
+                }
+            }
+            
+            if (this.inspectorVisible) {
+                this.updateInspector();
+            }
+        } catch (error) {
+            console.error('Failed to delete chunk:', error);
+            this.showError('Failed to delete chunk');
+        }
+    }
+    
     showContextMenu(e, chunkId) {
         this.contextMenuChunkId = chunkId;
         this.uiManager.showContextMenu(e, chunkId);

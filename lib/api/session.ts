@@ -266,3 +266,50 @@ export async function handleSetUIMode(sessionId: string, uiMode: string): Promis
     uiMode
   }), { headers: { 'Content-Type': 'application/json' } });
 }
+
+export async function handleDeleteChunk(sessionId: string, chunkId: string): Promise<Response> {
+  let session = getSession(sessionId);
+  
+  if (!session && sessionStore) {
+    const sessionData = await sessionStore.loadSession(sessionId);
+    if (sessionData) {
+      const agent = getAgent(sessionData.agentName);
+      if (agent) {
+        const restoredSession = await createSession(config, {
+          agentId: sessionData.agentName,
+          isBackground: sessionData.isBackground,
+          sessionId: sessionId,
+          uiMode: sessionData.uiMode,
+          ...sessionData.config,
+          systemPrompt: sessionData.systemPrompt || undefined,
+        });
+        
+        if (restoredSession._agentContext) {
+          await restoredSession._agentContext.loadState();
+        }
+        session = restoredSession;
+      }
+    }
+  }
+  
+  if (!session) {
+    return new Response(JSON.stringify({ error: 'Session not found' }), { status: 404, headers: { 'Content-Type': 'application/json' } });
+  }
+  
+  const { deleteChunkFromSession } = await import('../../core.js');
+  const result = deleteChunkFromSession(session, chunkId);
+  
+  if (!result) {
+    return new Response(JSON.stringify({ error: 'Chunk not found' }), { status: 404, headers: { 'Content-Type': 'application/json' } });
+  }
+  
+  if (sessionStore) {
+    await sessionStore.saveHistory(sessionId, session.history);
+  }
+  
+  return new Response(JSON.stringify({
+    success: true,
+    chunkId,
+    message: 'Chunk deleted'
+  }), { headers: { 'Content-Type': 'application/json' } });
+}

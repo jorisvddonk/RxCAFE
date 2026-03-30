@@ -785,6 +785,20 @@ export function toggleChunkTrust(
   }
 }
 
+export function deleteChunkFromSession(
+  session: Session,
+  chunkId: string
+): boolean {
+  const chunkIndex = session.history.findIndex(c => c.id === chunkId);
+  if (chunkIndex === -1) {
+    return false;
+  }
+  
+  session.trustedChunks.delete(chunkId);
+  session.history.splice(chunkIndex, 1);
+  return true;
+}
+
 export interface AddChunkOptions {
   content?: string;
   contentType?: 'text' | 'null';

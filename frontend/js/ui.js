@@ -343,6 +343,7 @@ export class UIManager {
                     <div class="inspector-chunk-header" onclick="this.parentElement.classList.toggle('expanded')">
                         <span class="inspector-chunk-id">${chunk.id.split('-').slice(-2).join('-')}</span>
                         <span class="inspector-chunk-role ${roleClass}">${role}</span>
+                        <button class="inspector-chunk-delete-btn" onclick="event.stopPropagation(); chat.deleteChunkFromInspector('${chunk.id}', event)" title="Delete chunk">×</button>
                     </div>
                     <div class="inspector-chunk-body">
                         <pre>${escapeHtml(JSON.stringify(chunk, null, 2))}</pre>

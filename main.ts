@@ -414,6 +414,12 @@ const server = serve({
       return addCors(await api.handleToggleTrust(sessionId, chunkId, body.trusted === true), corsHeaders);
     }
     
+    if (pathname.match(/^\/api\/session\/[^/]+\/chunk\/[^/]+$/) && request.method === 'DELETE') {
+      const parts = pathname.split('/');
+      const [,,, sessionId,, chunkId] = parts;
+      return addCors(await api.handleDeleteChunk(sessionId, chunkId), corsHeaders);
+    }
+    
     if (pathname.match(/^\/api\/chat\/[^/]+$/) && request.method === 'POST') {
       const sessionId = pathname.split('/')[3];
       const body = await request.json();

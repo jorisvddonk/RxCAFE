@@ -33,7 +33,7 @@ export function initApiHandlers(deps: { config: CoreConfig; trustDb: Database; s
   // connected-agents and streams don't need init
 }
 
-export { handleCreateSession, handleListSessions, handleDeleteSession, handleGetHistory, handleToggleTrust, handleSetUIMode } from './session.js';
+export { handleCreateSession, handleListSessions, handleDeleteSession, handleGetHistory, handleToggleTrust, handleSetUIMode, handleDeleteChunk } from './session.js';
 export { handleChatStream, handleFetchWeb, handleAddChunk, handleAbort, handleListModels, handleListAgents } from './chat.js';
 export { 
   handleRegisterConnectedAgent, 
