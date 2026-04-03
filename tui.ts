@@ -31,6 +31,9 @@ import {
 } from "@mariozechner/pi-tui";
 import chalk from "chalk";
 
+// Allow self-signed certs for local dev
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+
 const args = process.argv.slice(2);
 
 function parseArgs(): { url?: string; token?: string } {
@@ -50,7 +53,7 @@ function parseArgs(): { url?: string; token?: string } {
 }
 
 const cliOptions = parseArgs();
-const SERVER_URL = cliOptions.url || process.env.RXCAFE_URL || 'http://localhost:3000';
+const SERVER_URL = cliOptions.url || process.env.RXCAFE_URL || 'https://localhost:3000';
 const API_TOKEN = cliOptions.token || process.env.RXCAFE_TOKEN || '';
 
 interface Session {
