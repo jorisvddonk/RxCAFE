@@ -33,28 +33,30 @@ export const defaultAgent: AgentDefinition = {
           maxContextLength: { type: 'number' },
           numCtx: { type: 'number' },
         },
-        default: {
-          temperature: 0.7,
-          maxTokens: 500,
-          topP: 0.9,
-          topK: 40,
-          repeatPenalty: 1.1,
-          stop: ['\nUser:', 'Assistant:'],
-          stopTokenStrip: true
-        }
+         default: {
+           temperature: 0.7,
+           maxTokens: 500,
+           topP: 0.9,
+           topK: 40,
+           repeatPenalty: 1.1,
+           stop: ['\nUser:', 'Assistant:'],
+           stopTokenStrip: true,
+           numCtx: 16384
+         }
       }
     },
     default: {
       backend: 'ollama',
-      llmParams: {
-        temperature: 0.7,
-        maxTokens: 500,
-        topP: 0.9,
-        topK: 40,
-        repeatPenalty: 1.1,
-        stop: ['\nUser:', 'Assistant:'],
-        stopTokenStrip: true
-      }
+       llmParams: {
+         temperature: 0.7,
+         maxTokens: 500,
+         topP: 0.9,
+         topK: 40,
+         repeatPenalty: 1.1,
+         stop: ['\nUser:', 'Assistant:'],
+         stopTokenStrip: true,
+         numCtx: 8192
+       }
     },
     required: ['backend', 'model']
   },
