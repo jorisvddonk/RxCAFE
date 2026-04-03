@@ -145,7 +145,7 @@ export async function handleAddChunk(sessionId: string, options: AddChunkOptions
       if (systemPrompt) runtimeConfig.systemPrompt = systemPrompt;
       
       const llmParams: any = {};
-      const llmKeys = ['temperature', 'maxTokens', 'topP', 'topK', 'repeatPenalty', 'stop', 'seed', 'maxContextLength', 'numCtx'];
+      const llmKeys = ['temperature', 'maxTokens', 'topP', 'topK', 'repeatPenalty', 'stop', 'stopTokenStrip', 'seed', 'maxContextLength', 'numCtx'];
       for (const key of llmKeys) {
         const val = options.annotations[`config.llm.${key}`];
         if (val !== undefined) llmParams[key] = val;

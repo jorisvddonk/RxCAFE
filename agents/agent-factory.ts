@@ -451,6 +451,7 @@ export const agentFactory: AgentDefinition = {
           topK: { type: 'number' },
           repeatPenalty: { type: 'number' },
           stop: { type: 'array', items: { type: 'string' } },
+          stopTokenStrip: { type: 'boolean' },
           seed: { type: 'number' },
           maxContextLength: { type: 'number' },
           numCtx: { type: 'number' },

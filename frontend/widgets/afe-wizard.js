@@ -708,11 +708,31 @@ export class AfeWizard extends LitElement {
   }
 
   _createSession() {
-    // Dispatch event with form data
+    // Merge flat llmParams.* keys into nested llmParams object
+    const config = { ...this.formData };
+    const llmParamKeys = ['temperature', 'maxTokens', 'topP', 'topK', 'repeatPenalty', 'stop', 'stopTokenStrip', 'seed', 'maxContextLength', 'numCtx'];
+    for (const key of llmParamKeys) {
+      const flatKey = `llmParams.${key}`;
+      if (config[flatKey] !== undefined) {
+        if (!config.llmParams) config.llmParams = {};
+        let val = config[flatKey];
+        // Convert comma-separated string back to array for stop tokens
+        if (key === 'stop' && typeof val === 'string') {
+          val = val.split(',').map(s => s.trim()).filter(s => s.length > 0);
+        }
+        // Convert string to boolean for stopTokenStrip
+        if (key === 'stopTokenStrip') {
+          val = val === true || val === 'true' || val === '1';
+        }
+        config.llmParams[key] = val;
+        delete config[flatKey];
+      }
+    }
+    
     this.dispatchEvent(new CustomEvent('afe-wizard-complete', {
       detail: {
         agentId: this.selectedAgent.name,
-        config: this.formData
+        config
       },
       bubbles: true,
       composed: true
@@ -914,8 +934,16 @@ export class AfeWizard extends LitElement {
               if (generatedEnum) {
                 return html`<afe-select name="llmParams.${nestedName}" label="${nestedProp.description || nestedName}" required="${nestedRequired}" .options=${generatedEnum} .value=${this.formData.llmParams?.[nestedName] || ''}></afe-select>`;
               }
+              if (nestedProp.type === 'boolean') {
+                return html`<afe-checkbox name="llmParams.${nestedName}" label="${nestedProp.description || nestedName}" .checked=${this.formData.llmParams?.[nestedName] ?? false}></afe-checkbox>`;
+              }
               if (nestedProp.type === 'number' || nestedProp.type === 'integer') {
                 return html`<afe-number name="llmParams.${nestedName}" label="${nestedProp.description || nestedName}" required="${nestedRequired}" .value=${this.formData.llmParams?.[nestedName] ?? null}></afe-number>`;
+              }
+              if (nestedProp.type === 'array') {
+                const arrVal = this.formData.llmParams?.[nestedName];
+                const displayVal = Array.isArray(arrVal) ? arrVal.join(', ') : '';
+                return html`<afe-text name="llmParams.${nestedName}" label="${nestedProp.description || nestedName}" required="${nestedRequired}" .value=${displayVal} placeholder="Comma-separated values"></afe-text>`;
               }
               return html`<afe-text name="llmParams.${nestedName}" label="${nestedProp.description || nestedName}" required="${nestedRequired}" .value=${this.formData.llmParams?.[nestedName] || ''}></afe-text>`;
             });

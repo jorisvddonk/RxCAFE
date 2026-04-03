@@ -55,7 +55,7 @@ export const voiceAgent: AgentDefinition = {
           topP: { type: 'number', default: 0.9 },
           topK: { type: 'number', default: 40 },
           repeatPenalty: { type: 'number', default: 1.1 },
-          stop: { type: 'array', items: { type: 'string' }, default: [] },
+          stop: { type: 'array', items: { type: 'string' }, default: ['\nUser:', 'Assistant:'] },
           seed: { type: 'number' },
           maxContextLength: { type: 'number' },
           numCtx: { type: 'number' },

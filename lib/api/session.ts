@@ -88,12 +88,31 @@ export async function handleCreateSession(body?: any): Promise<Response> {
       if (body.model) annotations['config.model'] = body.model;
       if (body.systemPrompt) annotations['config.systemPrompt'] = body.systemPrompt;
       
-      if (body.llmParams) {
-        const llmParams = body.llmParams;
-        const llmKeys = ['temperature', 'maxTokens', 'topP', 'topK', 'repeatPenalty', 'stop', 'seed', 'maxContextLength', 'numCtx'] as const;
+      // Merge explicit llmParams with agent defaults
+      const schemaDefaults = agent.configSchema?.default?.llmParams || {};
+      const llmParams = body.llmParams || {};
+      const llmKeys = ['temperature', 'maxTokens', 'topP', 'topK', 'repeatPenalty', 'stop', 'stopTokenStrip', 'seed', 'maxContextLength', 'numCtx'] as const;
+      for (const key of llmKeys) {
+        const value = (llmParams as any)[key] !== undefined ? (llmParams as any)[key] : (schemaDefaults as any)[key];
+        if (value !== undefined) {
+          annotations[`config.llm.${key}`] = value;
+        }
+      }
+      session.outputStream.next(createNullChunk('com.rxcafe.api', annotations));
+    } else if (agent.configSchema) {
+      // No explicit config sent, but agent has a configSchema — emit defaults
+      const annotations: Record<string, any> = { 'config.type': 'runtime' };
+      const defaults = agent.configSchema.default || {};
+      if (defaults.backend) annotations['config.backend'] = defaults.backend;
+      if (defaults.model) annotations['config.model'] = defaults.model;
+      if (defaults.systemPrompt) annotations['config.systemPrompt'] = defaults.systemPrompt;
+      
+      if (defaults.llmParams) {
+        const llmDefaults = defaults.llmParams;
+        const llmKeys = ['temperature', 'maxTokens', 'topP', 'topK', 'repeatPenalty', 'stop', 'stopTokenStrip', 'seed', 'maxContextLength', 'numCtx'] as const;
         for (const key of llmKeys) {
-          if ((llmParams as any)[key] !== undefined) {
-            annotations[`config.llm.${key}`] = (llmParams as any)[key];
+          if ((llmDefaults as any)[key] !== undefined) {
+            annotations[`config.llm.${key}`] = (llmDefaults as any)[key];
           }
         }
       }

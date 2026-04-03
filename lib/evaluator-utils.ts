@@ -84,7 +84,20 @@ export function completeTurnWithLLM(
           }
         }
         
-        const assistantChunk = createTextChunk(fullResponse, 'com.rxcafe.assistant', {
+        // Strip stop token from end if configured
+        let strippedResponse = fullResponse;
+        const stopSequences = (session.runtimeConfig as any).llmParams?.stop;
+        const stripEnabled = (session.runtimeConfig as any).llmParams?.stopTokenStrip;
+        if (stripEnabled && stopSequences && Array.isArray(stopSequences)) {
+          for (const stopSeq of stopSequences) {
+            if (typeof stopSeq === 'string' && strippedResponse.endsWith(stopSeq)) {
+              strippedResponse = strippedResponse.slice(0, -stopSeq.length);
+              break;
+            }
+          }
+        }
+        
+        const assistantChunk = createTextChunk(strippedResponse, 'com.rxcafe.assistant', {
           'chat.role': 'assistant'
         });
         (assistantChunk as any).id = assistantChunkId;

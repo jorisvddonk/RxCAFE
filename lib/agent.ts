@@ -17,6 +17,7 @@ export interface LLMParams {
   topK?: number;
   repeatPenalty?: number;
   stop?: string[];
+  stopTokenStrip?: boolean;
   seed?: number;
   maxContextLength?: number;
   numCtx?: number;
@@ -99,6 +100,9 @@ export function extractLLMParamsFromChunk(configChunk: Chunk): LLMParams {
   }
   if (configChunk.annotations['config.llm.stop'] !== undefined) {
     params.stop = configChunk.annotations['config.llm.stop'];
+  }
+  if (configChunk.annotations['config.llm.stopTokenStrip'] !== undefined) {
+    params.stopTokenStrip = configChunk.annotations['config.llm.stopTokenStrip'];
   }
   if (configChunk.annotations['config.llm.seed'] !== undefined) {
     params.seed = configChunk.annotations['config.llm.seed'];

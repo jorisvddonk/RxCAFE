@@ -17,6 +17,7 @@ export interface OllamaSettings {
   seed?: number;
   system?: string;
   numCtx?: number;
+  stop?: string[];
 }
 
 const defaultSettings: OllamaSettings = {
@@ -27,6 +28,7 @@ const defaultSettings: OllamaSettings = {
   topK: 40,
   numPredict: 500,
   repeatPenalty: 1.1,
+  stop: ['\nUser:', 'Assistant:'],
 };
 
 export class OllamaAPI {
@@ -65,6 +67,7 @@ export class OllamaAPI {
           repeat_penalty: this.settings.repeatPenalty,
           seed: this.settings.seed,
           num_ctx: this.settings.numCtx,
+          stop: this.settings.stop,
         },
         system: this.settings.system,
       }),
@@ -96,6 +99,7 @@ export class OllamaAPI {
           repeat_penalty: this.settings.repeatPenalty,
           seed: this.settings.seed,
           num_ctx: this.settings.numCtx,
+          stop: this.settings.stop,
         },
         system: systemOverride !== undefined ? systemOverride : this.settings.system,
       }),
@@ -196,6 +200,7 @@ export class OllamaEvaluator {
       if (llmParams.repeatPenalty !== undefined) settings.repeatPenalty = llmParams.repeatPenalty;
       if (llmParams.seed !== undefined) settings.seed = llmParams.seed;
       if (llmParams.numCtx !== undefined) settings.numCtx = llmParams.numCtx;
+      if (llmParams.stop !== undefined) settings.stop = llmParams.stop;
     }
     
     this.api = new OllamaAPI(baseUrl, model, settings);

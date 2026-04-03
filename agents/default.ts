@@ -26,7 +26,8 @@ export const defaultAgent: AgentDefinition = {
           topP: { type: 'number', default: 0.9 },
           topK: { type: 'number', default: 40 },
           repeatPenalty: { type: 'number', default: 1.1 },
-          stop: { type: 'array', items: { type: 'string' }, default: [] },
+          stop: { type: 'array', items: { type: 'string' }, default: ['\nUser:', 'Assistant:'] },
+          stopTokenStrip: { type: 'boolean', default: true },
           seed: { type: 'number' },
           maxContextLength: { type: 'number' },
           numCtx: { type: 'number' },
@@ -36,7 +37,9 @@ export const defaultAgent: AgentDefinition = {
           maxTokens: 500,
           topP: 0.9,
           topK: 40,
-          repeatPenalty: 1.1
+          repeatPenalty: 1.1,
+          stop: ['\nUser:', 'Assistant:'],
+          stopTokenStrip: true
         }
       }
     },
@@ -47,7 +50,9 @@ export const defaultAgent: AgentDefinition = {
         maxTokens: 500,
         topP: 0.9,
         topK: 40,
-        repeatPenalty: 1.1
+        repeatPenalty: 1.1,
+        stop: ['\nUser:', 'Assistant:'],
+        stopTokenStrip: true
       }
     },
     required: ['backend', 'model']
