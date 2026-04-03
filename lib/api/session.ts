@@ -62,11 +62,24 @@ export async function handleCreateSession(body?: any): Promise<Response> {
       }), { status: 404, headers: { 'Content-Type': 'application/json' } });
     }
     
-    const runtimeConfig: RuntimeSessionConfig = {};
-    if (body?.backend) runtimeConfig.backend = body.backend;
-    if (body?.model) runtimeConfig.model = body.model;
-    if (body?.systemPrompt) runtimeConfig.systemPrompt = body.systemPrompt;
-    if (body?.llmParams) runtimeConfig.llmParams = body.llmParams;
+    // Build runtimeConfig with agent schema defaults BEFORE createSession
+    // so initialize() has access to voice and other defaults
+    const defaults = agent.configSchema?.default || {};
+    const runtimeConfig: RuntimeSessionConfig = {
+      backend: body?.backend || defaults.backend,
+      model: body?.model || defaults.model,
+      systemPrompt: body?.systemPrompt || defaults.systemPrompt,
+      llmParams: body?.llmParams || defaults.llmParams,
+    };
+    if (body?.voice || defaults.voice) {
+      runtimeConfig.voice = body?.voice || defaults.voice;
+    }
+    if (body?.promptTemplate || defaults.promptTemplate) {
+      runtimeConfig.promptTemplate = body?.promptTemplate || defaults.promptTemplate;
+    }
+    if (body?.templateVars || defaults.templateVars) {
+      runtimeConfig.templateVars = body?.templateVars || defaults.templateVars;
+    }
     
     if (agent.configSchema) {
       const errors = await validateConfigAgainstSchema(runtimeConfig, agent.configSchema);
@@ -82,50 +95,29 @@ export async function handleCreateSession(body?: any): Promise<Response> {
     const uiMode = body?.uiMode || 'chat';
     const session = await createSession(config, { agentId, runtimeConfig, uiMode });
     
-    if (body?.backend || body?.model || body?.systemPrompt || body?.llmParams || body?.promptTemplate || body?.templateVars) {
-      const annotations: Record<string, any> = { 'config.type': 'runtime' };
-      if (body.backend) annotations['config.backend'] = body.backend;
-      if (body.model) annotations['config.model'] = body.model;
-      if (body.systemPrompt) annotations['config.systemPrompt'] = body.systemPrompt;
-      if (body.promptTemplate) annotations['config.promptTemplate'] = body.promptTemplate;
-      
-      if (body.templateVars && typeof body.templateVars === 'object') {
-        for (const [key, value] of Object.entries(body.templateVars)) {
-          annotations[`config.templateVars.${key}`] = value;
-        }
+    // Emit config chunk for persistence (history)
+    const annotations: Record<string, any> = { 'config.type': 'runtime' };
+    if (runtimeConfig.backend) annotations['config.backend'] = runtimeConfig.backend;
+    if (runtimeConfig.model) annotations['config.model'] = runtimeConfig.model;
+    if (runtimeConfig.systemPrompt) annotations['config.systemPrompt'] = runtimeConfig.systemPrompt;
+    if (runtimeConfig.promptTemplate) annotations['config.promptTemplate'] = runtimeConfig.promptTemplate;
+    if (runtimeConfig.voice) annotations['config.voice'] = runtimeConfig.voice;
+    
+    if (runtimeConfig.templateVars && typeof runtimeConfig.templateVars === 'object') {
+      for (const [key, value] of Object.entries(runtimeConfig.templateVars)) {
+        annotations[`config.templateVars.${key}`] = value;
       }
-      
-      // Merge explicit llmParams with agent defaults
-      const schemaDefaults = agent.configSchema?.default?.llmParams || {};
-      const llmParams = body.llmParams || {};
+    }
+    
+    if (runtimeConfig.llmParams) {
       const llmKeys = ['temperature', 'maxTokens', 'topP', 'topK', 'repeatPenalty', 'stop', 'stopTokenStrip', 'seed', 'maxContextLength', 'numCtx'] as const;
       for (const key of llmKeys) {
-        const value = (llmParams as any)[key] !== undefined ? (llmParams as any)[key] : (schemaDefaults as any)[key];
-        if (value !== undefined) {
-          annotations[`config.llm.${key}`] = value;
+        if ((runtimeConfig.llmParams as any)[key] !== undefined) {
+          annotations[`config.llm.${key}`] = (runtimeConfig.llmParams as any)[key];
         }
       }
-      session.outputStream.next(createNullChunk('com.rxcafe.api', annotations));
-    } else if (agent.configSchema) {
-      // No explicit config sent, but agent has a configSchema — emit defaults
-      const annotations: Record<string, any> = { 'config.type': 'runtime' };
-      const defaults = agent.configSchema.default || {};
-      if (defaults.backend) annotations['config.backend'] = defaults.backend;
-      if (defaults.model) annotations['config.model'] = defaults.model;
-      if (defaults.systemPrompt) annotations['config.systemPrompt'] = defaults.systemPrompt;
-      if (defaults.promptTemplate) annotations['config.promptTemplate'] = defaults.promptTemplate;
-      
-      if (defaults.llmParams) {
-        const llmDefaults = defaults.llmParams;
-        const llmKeys = ['temperature', 'maxTokens', 'topP', 'topK', 'repeatPenalty', 'stop', 'stopTokenStrip', 'seed', 'maxContextLength', 'numCtx'] as const;
-        for (const key of llmKeys) {
-          if ((llmDefaults as any)[key] !== undefined) {
-            annotations[`config.llm.${key}`] = (llmDefaults as any)[key];
-          }
-        }
-      }
-      session.outputStream.next(createNullChunk('com.rxcafe.api', annotations));
     }
+    session.outputStream.next(createNullChunk('com.rxcafe.api', annotations));
     
     return new Response(JSON.stringify({ 
       sessionId: session.id,

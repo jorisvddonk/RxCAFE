@@ -25,11 +25,11 @@ interface VoiceSettings {
 
 const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
   voices: {
-    text: 'Robert.wav',
-    quote: 'Robert.wav',
-    bold: null,
-    emphasis: null,
-    code: null,
+    text: 'Volition',
+    quote: 'Volition',
+    bold: 'Volition',
+    emphasis: 'Volition',
+    code: 'Volition',
     tool_call: null,
     tool_result: null,
     reasoning: null
@@ -49,6 +49,34 @@ const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
     crossfadeMs: 50
   }
 };
+
+const profileCache: Map<string, Map<string, string>> = new Map();
+
+async function resolveVoiceboxProfileId(endpoint: string, nameOrId: string): Promise<string> {
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(nameOrId)) {
+    return nameOrId;
+  }
+
+  const cacheKey = endpoint;
+  if (!profileCache.has(cacheKey)) {
+    const resp = await fetch(`${endpoint}/profiles`);
+    if (!resp.ok) {
+      throw new Error(`Failed to fetch voicebox profiles: ${resp.statusText}`);
+    }
+    const profiles = await resp.json() as Array<{ id: string; name: string }>;
+    const map = new Map<string, string>();
+    for (const p of profiles) {
+      map.set(p.name.toLowerCase(), p.id);
+    }
+    profileCache.set(cacheKey, map);
+  }
+
+  const id = profileCache.get(cacheKey)!.get(nameOrId.toLowerCase());
+  if (!id) {
+    throw new Error(`Voicebox profile "${nameOrId}" not found at ${endpoint}/profiles`);
+  }
+  return id;
+}
 
 export interface ParsedVoiceItem {
   type: string;
@@ -170,9 +198,10 @@ async function generateTTS(
   voiceboxOptions?: VoiceSettings['voicebox']
 ): Promise<Uint8Array | null> {
   if (backend === 'voicebox') {
+    const profileId = await resolveVoiceboxProfileId(endpoint, voiceId);
     const url = `${endpoint}/generate/stream`;
     const body = {
-      profile_id: voiceId,
+      profile_id: profileId,
       text,
       normalize: voiceboxOptions?.normalize ?? true,
       max_chunk_chars: voiceboxOptions?.maxChunkChars ?? 800,
