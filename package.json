@@ -14,9 +14,11 @@
   },
   "dependencies": {
     "@mariozechner/pi-tui": "^0.55.3",
+    "@mozilla/readability": "^0.6.0",
     "ajv": "^8.18.0",
     "chess.js": "^1.4.0",
     "fflate": "^0.8.2",
+    "jsdom": "^29.0.1",
     "lamejs": "^1.2.1",
     "rxjs": "^7.8.1",
     "terminal-kit": "^3.1.2",
