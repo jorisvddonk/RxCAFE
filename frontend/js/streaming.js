@@ -142,8 +142,14 @@ export class StreamingManager {
             chat.addRawChunk(chunk);
             chat.renderChunk(chunk);
             chat.updateInspector();
-            // Transition from stop to send on any chunk
-            chat.isGenerating = false;
+
+            // Update UI state from annotations
+            if (chunk.annotations && typeof chunk.annotations['ui.input.blocked'] === 'boolean') {
+                chat.inputBlocked = chunk.annotations['ui.input.blocked'];
+            }
+            if (chunk.annotations && typeof chunk.annotations['ui.thinking'] === 'boolean') {
+                chat.thinking = chunk.annotations['ui.thinking'];
+            }
             chat.updateUIState();
         }
     }

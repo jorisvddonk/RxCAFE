@@ -17,7 +17,8 @@ class RXCafeChat {
         this.model = null;
         this.agentName = null;
         this.isBackground = false;
-        this.isGenerating = false;
+            this.inputBlocked = false;
+            this.thinking = false;
         this.isRecording = false;
         this.currentMessageEl = null;
         this.currentContent = '';
@@ -241,7 +242,7 @@ class RXCafeChat {
         }
         
         const message = this.messageInput.value.trim();
-        if (!message || this.isGenerating) return;
+        if (!message || this.inputBlocked) return;
         
         if (message.startsWith('/web ')) {
             const url = message.slice(5).trim();
@@ -278,7 +279,8 @@ class RXCafeChat {
         this.messageInput.style.height = 'auto';
         this.messageInput.focus();
         
-        this.isGenerating = true;
+        this.inputBlocked = true;
+        this.thinking = true;
         this._streamingEl = null;
         await this.updateUIState();
 
@@ -319,7 +321,8 @@ class RXCafeChat {
                 this.showErrorInMessage(this.currentMessageEl, 'Failed to get response. Check if the LLM server is running.');
             }
         } finally {
-            this.isGenerating = false;
+        this.inputBlocked = false;
+        this.thinking = false;
             if (this.currentMessageEl) {
                 this.currentMessageEl.classList.remove('streaming');
             }
@@ -723,7 +726,7 @@ class RXCafeChat {
     }
     
     async abortGeneration() {
-        if (!this.sessionId || !this.isGenerating) return;
+        if (!this.sessionId || !this.inputBlocked) return;
         
         try {
             await fetch(this.apiUrl(`/api/chat/${this.sessionId}/abort`), {

@@ -134,14 +134,15 @@ export class UIManager {
     }
 
     updateUIState() {
-        this.chat.sendBtn.style.display = this.chat.isGenerating ? 'none' : 'block';
+        this.chat.sendBtn.style.display = this.chat.inputBlocked ? 'none' : 'block';
         this.chat.sendBtn.disabled = !this.chat.sessionId;
-        this.chat.abortBtn.style.display = this.chat.isGenerating ? 'block' : 'none';
+        this.chat.abortBtn.style.display = this.chat.inputBlocked ? 'block' : 'none';
+        this.chat.abortBtn.textContent = this.chat.thinking ? 'Thinking...' : 'Stop';
         this.chat.messageInput.disabled = this.chat.isRecording;
         if (this.chat.copySessionIdBtn) {
             this.chat.copySessionIdBtn.style.display = this.chat.sessionId ? 'inline-block' : 'none';
         }
-        this.chat.microphoneBtn.disabled = !this.chat.sessionId || this.chat.isGenerating;
+        this.chat.microphoneBtn.disabled = !this.chat.sessionId || this.chat.inputBlocked;
         
         this.chat.messagesManager?.updateQuickResponsesState();
         
