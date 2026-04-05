@@ -279,12 +279,14 @@ export class UIManager {
             const messageCount = s.messageCount || 0;
             const newMessageCount = s.newMessageCount || 0;
 
-            const badges = [];
+            let badgeHtml = '';
             if (messageCount > 0) {
-                badges.push(`<span class="sidebar-session-badge">${messageCount}</span>`);
-            }
-            if (newMessageCount > 0) {
-                badges.push(`<span class="sidebar-session-badge-new">${newMessageCount}</span>`);
+                if (newMessageCount > 0) {
+                    const readCount = messageCount - newMessageCount;
+                    badgeHtml = `<span class="sidebar-session-badge-new">${readCount}+${newMessageCount}</span>`;
+                } else {
+                    badgeHtml = `<span class="sidebar-session-badge">${messageCount}</span>`;
+                }
             }
 
             return `
@@ -294,9 +296,7 @@ export class UIManager {
                         <div class="sidebar-session-meta">${s.agentName} • ${shortId}</div>
                     </div>
                     <div class="sidebar-session-right">
-                        <div class="sidebar-session-badges">
-                            ${badges.join('')}
-                        </div>
+                        ${badgeHtml}
                         <button class="sidebar-session-more-btn" onclick="chat.showSidebarMenu(event, '${s.id}')">⋮</button>
                     </div>
                 </div>

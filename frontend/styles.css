@@ -321,12 +321,6 @@ body {
     gap: 0.5rem;
 }
 
-.sidebar-session-badges {
-    display: flex;
-    gap: 0.25rem;
-    align-items: center;
-}
-
 .sidebar-session-badge {
     background-color: var(--secondary-color);
     color: white;

@@ -14,7 +14,7 @@
  */
 
 import type { Chunk } from '../chunk.js';
-import { getSession } from '../../core.js';
+import { getSession, sessionUpdates } from '../../core.js';
 
 export function handleSessionStream(sessionId: string, binaryRefs: boolean = false): Response {
   const session = getSession(sessionId);
@@ -155,5 +155,46 @@ export async function handleSystemCommand(request: Request): Promise<Response> {
       'client.type': 'api',
       'admin.authorized': true
     }));
+  });
+}
+
+export function handleSessionUpdates(): Response {
+  let cleanup: (() => void) | null = null;
+
+  const stream = new ReadableStream({
+    start(controller) {
+      const encoder = new TextEncoder();
+
+      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'connected' })}\n\n`));
+
+      const sub = sessionUpdates.subscribe({
+        next: (update) => {
+          try {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify({
+              type: 'session-update',
+              sessionId: update.sessionId,
+              messageCount: update.messageCount
+            })}\n\n`));
+          } catch (error) {
+            console.error('[SessionUpdates SSE] Failed to send update:', error);
+          }
+        },
+        error: (err: Error) => {
+          console.error('[SessionUpdates SSE] Error:', err);
+        }
+      });
+
+      cleanup = () => sub.unsubscribe();
+    },
+    cancel() {
+      if (cleanup) {
+        cleanup();
+        cleanup = null;
+      }
+    }
+  });
+
+  return new Response(stream, {
+    headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive' }
   });
 }

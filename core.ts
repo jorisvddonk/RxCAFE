@@ -172,6 +172,7 @@ export interface Session {
 }
 
 const sessions = new Map<string, Session>();
+export const sessionUpdates = new Subject<{ sessionId: string; messageCount: number }>();
 let sessionStore: SessionStore | null = null;
 let coreConfig: CoreConfig | null = null;
 
@@ -435,14 +436,22 @@ export async function createSession(
           // Update existing chunk (e.g., streaming tokens coalesced)
           session.history[existingIndex] = chunk;
         } else {
-          // Validate chunk before adding to history
-          if (!chunk || !chunk.id || !chunk.contentType) {
-            console.error(`[Core] Invalid chunk being added to history:`, chunk);
-            console.error(`[Core] Stack trace:`, new Error().stack);
-          } else {
-            session.history.push(chunk);
-            historyTrigger.next();  // Signal that history was updated
-          }
+            // Validate chunk before adding to history
+            if (!chunk || !chunk.id || !chunk.contentType) {
+              console.error(`[Core] Invalid chunk being added to history:`, chunk);
+              console.error(`[Core] Stack trace:`, new Error().stack);
+            } else {
+              session.history.push(chunk);
+              historyTrigger.next();  // Signal that history was updated
+
+              // Emit session update for message count changes
+              if (chunk.annotations?.['chat.role'] === 'user' || chunk.annotations?.['chat.role'] === 'assistant') {
+                const messageCount = session.history.filter(c =>
+                  c.annotations?.['chat.role'] === 'user' || c.annotations?.['chat.role'] === 'assistant'
+                ).length;
+                sessionUpdates.next({ sessionId: id, messageCount });
+              }
+            }
         }
       })
     )

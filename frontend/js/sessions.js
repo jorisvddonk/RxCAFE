@@ -1,6 +1,8 @@
 export class SessionsManager {
     constructor(chat) {
         this.chat = chat;
+        this.sessionUpdatesEventSource = null;
+        this.connectToSessionUpdates();
     }
 
     async loadSessions() {
@@ -263,19 +265,79 @@ export class SessionsManager {
         }
     }
 
+    connectToSessionUpdates() {
+        if (this.sessionUpdatesEventSource) {
+            this.sessionUpdatesEventSource.close();
+        }
+
+        const url = this.chat.apiUrl('/api/sessions/updates');
+        this.sessionUpdatesEventSource = new EventSource(url);
+
+        this.sessionUpdatesEventSource.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                if (data.type === 'session-update') {
+                    this.handleSessionUpdate(data.sessionId, data.messageCount);
+                }
+            } catch (error) {
+                console.error('[Sessions] Failed to parse session update:', error);
+            }
+        };
+
+        this.sessionUpdatesEventSource.onerror = (error) => {
+            console.error('[Sessions] Session updates stream error:', error);
+            // Reconnect after a delay
+            setTimeout(() => this.connectToSessionUpdates(), 5000);
+        };
+
+        this.sessionUpdatesEventSource.onopen = () => {
+            console.log('[Sessions] Connected to session updates stream');
+        };
+    }
+
+    handleSessionUpdate(sessionId, messageCount) {
+        const session = this.chat.knownSessions.find(s => s.id === sessionId);
+        if (session) {
+            const oldCount = session.messageCount || 0;
+            session.messageCount = messageCount;
+
+            // If this is not the current session, mark as having new messages
+            if (sessionId !== this.chat.sessionId) {
+                if (messageCount > oldCount) {
+                    session.newMessageCount += (messageCount - oldCount);
+                }
+            } else {
+                // For current session, clear new messages
+                session.newMessageCount = 0;
+            }
+
+            this.chat.renderSidebarSessionList();
+        } else {
+            // Session not in knownSessions, reload the list
+            this.loadSessions();
+        }
+    }
+
+    disconnect() {
+        if (this.sessionUpdatesEventSource) {
+            this.sessionUpdatesEventSource.close();
+            this.sessionUpdatesEventSource = null;
+        }
+    }
+
     async loadAgents() {
         try {
             const response = await fetch(this.chat.apiUrl('/api/agents'));
             const data = await response.json();
-            
+
             if (data.agents && data.agents.length > 0) {
                 this.chat.agents = data.agents;
-                
+
                 if (this.chat.agentSelect) {
                     this.chat.agentSelect.innerHTML = data.agents
                         .map(a => `<option value="${a.name}">${a.name}${a.startInBackground ? ' (background)' : ''}</option>`)
                         .join('');
-                    
+
                     const defaultAgent = data.agents.find(a => a.name === 'default') || data.agents[0];
                     if (defaultAgent) {
                         this.chat.agentSelect.value = defaultAgent.name;
