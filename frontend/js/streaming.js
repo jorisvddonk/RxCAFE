@@ -7,7 +7,7 @@ export class StreamingManager {
 
     connect(sessionId) {
         this.disconnect();
-        const url = this.chat.apiUrl(`/api/session/${sessionId}/stream`);
+        const url = this.chat.apiUrl(`/api/session/${sessionId}/stream?binaryRefs=1`);
         const es = new EventSource(url);
         this.eventSource = es;
 

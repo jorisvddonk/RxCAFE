@@ -388,7 +388,7 @@ const server = serve({
       const body = await request.json().catch(() => ({}));
       return addCors(await api.handleSetUIMode(sessionId, body.uiMode || 'chat'), corsHeaders);
     }
-    if (pathname.match(/^\/api\/session\/[^/]+\/stream$/) && request.method === 'GET') return api.handleSessionStream(pathname.split('/')[3]);
+    if (pathname.match(/^\/api\/session\/[^/]+\/stream$/) && request.method === 'GET') return api.handleSessionStream(pathname.split('/')[3], url.searchParams.get('binaryRefs') === '1');
     if (pathname.match(/^\/api\/session\/[^/]+\/errors$/) && request.method === 'GET') return addCors(await api.handleErrorStream(pathname.split('/')[3]), corsHeaders);
     
     if (pathname.match(/^\/api\/session\/[^/]+\/web$/) && request.method === 'POST') {

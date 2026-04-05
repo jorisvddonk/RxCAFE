@@ -213,9 +213,16 @@ data: {"done": true}
 
 ```
 GET /api/session/:sessionId/stream
+GET /api/session/:sessionId/stream?binaryRefs=1
 ```
 
 Persistent SSE stream for all session activity.
+
+**Query Parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `binaryRefs` | When set to `1`, binary chunks emitted on the stream are replaced with `binary-ref` objects (same format as the history endpoint). The frontend can then fetch the binary data on demand via the Binary Chunk endpoint. |
 
 **Response:** Server-Sent Events
 ```

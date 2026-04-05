@@ -16,7 +16,7 @@
 import type { Chunk } from '../chunk.js';
 import { getSession } from '../../core.js';
 
-export function handleSessionStream(sessionId: string): Response {
+export function handleSessionStream(sessionId: string, binaryRefs: boolean = false): Response {
   const session = getSession(sessionId);
   
   if (!session) {
@@ -37,12 +37,25 @@ export function handleSessionStream(sessionId: string): Response {
           const isVisualization = chunk.contentType === 'null' && chunk.annotations?.['visualizer.type'] === 'rx-marbles';
           if (chunk.contentType === 'text' || chunk.contentType === 'binary' || isVisualization) {
             try {
-              let serializedChunk = chunk;
+              let serializedChunk: any = chunk;
               if (chunk.contentType === 'binary') {
-                serializedChunk = {
-                  ...chunk,
-                  content: { ...chunk.content, data: Array.from((chunk.content as any).data) }
-                };
+                if (binaryRefs) {
+                  const binaryContent = chunk.content as any;
+                  serializedChunk = {
+                    ...chunk,
+                    contentType: 'binary-ref',
+                    content: {
+                      chunkId: chunk.id,
+                      mimeType: binaryContent.mimeType,
+                      byteSize: binaryContent.data.byteLength,
+                    },
+                  };
+                } else {
+                  serializedChunk = {
+                    ...chunk,
+                    content: { ...chunk.content, data: Array.from((chunk.content as any).data) }
+                  };
+                }
               }
               controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: 'chunk', chunk: serializedChunk })}
 \n`));
