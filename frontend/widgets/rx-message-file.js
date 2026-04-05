@@ -1,13 +1,13 @@
 import { LitElement, html, css } from 'https://cdn.jsdelivr.net/npm/lit@3/+esm';
+import { BinaryRefMixin, formatByteSize } from './binary-ref-mixin.js';
 
-export class RxMessageFile extends LitElement {
+export class RxMessageFile extends BinaryRefMixin(LitElement) {
   static properties = {
+    ...LitElement.properties,
     role: { type: String, reflect: true },
     filename: { type: String },
-    mimeType: { type: String },
     size: { type: Number },
     dataUrl: { type: String },
-    chunkId: { type: String }
   };
 
   static styles = css`
@@ -113,16 +113,62 @@ export class RxMessageFile extends LitElement {
     .message.assistant .download-btn:hover {
       background: var(--user-bubble-hover, #2563eb);
     }
+
+    .placeholder-state,
+    .loading-state,
+    .prompted-state,
+    .error-state {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      padding: 1rem;
+      min-width: 120px;
+      border-radius: 0.5rem;
+      background: rgba(0,0,0,0.06);
+      font-size: 0.875rem;
+      text-align: center;
+    }
+
+    .placeholder-icon {
+      font-size: 2rem;
+      line-height: 1;
+    }
+
+    .placeholder-text {
+      opacity: 0.6;
+    }
+
+    .prompted-state button,
+    .error-state button {
+      margin-top: 0.25rem;
+      padding: 0.3rem 0.75rem;
+      border: none;
+      border-radius: 0.4rem;
+      background: var(--user-bubble, #3b82f6);
+      color: white;
+      cursor: pointer;
+      font-size: 0.8rem;
+    }
+
+    .prompted-state button:hover,
+    .error-state button:hover {
+      opacity: 0.85;
+    }
+
+    .meta {
+      opacity: 0.7;
+      font-size: 0.8rem;
+    }
   `;
 
   constructor() {
     super();
     this.role = 'assistant';
     this.filename = 'file';
-    this.mimeType = 'application/octet-stream';
     this.size = 0;
     this.dataUrl = '';
-    this.chunkId = '';
   }
 
   get extension() {
@@ -156,6 +202,10 @@ export class RxMessageFile extends LitElement {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
   }
 
+  _onBinaryLoaded(url, _mimeType) {
+    this.dataUrl = url;
+  }
+
   handleDownload() {
     if (!this.dataUrl) return;
     const a = document.createElement('a');
@@ -169,18 +219,62 @@ export class RxMessageFile extends LitElement {
   render() {
     return html`
       <div class="message ${this.role}" data-chunk-id=${this.chunkId}>
-        <div class="file-container">
-          <div class="file-icon">${this.fileIcon}</div>
-          <div class="file-info">
-            <div class="filename" title="${this.filename}">${this.filename}</div>
-            <div class="file-meta">${this.formatSize(this.size)} • ${this.mimeType}</div>
-          </div>
-          <button class="download-btn" @click=${this.handleDownload}>
-            ⬇ Download
-          </button>
-        </div>
+        ${this._renderContent()}
       </div>
     `;
+  }
+
+  _renderContent() {
+    switch (this._loadState) {
+      case 'placeholder':
+        return html`
+          <div class="placeholder-state">
+            <span class="placeholder-icon">📁</span>
+            ${this.byteSize > 0
+              ? html`<span class="placeholder-text">${formatByteSize(this.byteSize)}</span>`
+              : ''}
+          </div>
+        `;
+      case 'loading':
+        return html`
+          <div class="loading-state">
+            <span class="placeholder-icon">📁</span>
+            <span class="placeholder-text">Loading…</span>
+          </div>
+        `;
+      case 'prompted':
+        return html`
+          <div class="prompted-state">
+            <span class="placeholder-icon">📁</span>
+            <div>File</div>
+            <div class="meta">${this.mimeType} · ${formatByteSize(this.byteSize)}</div>
+            <button @click=${() => { this._loadState = 'loading'; this._fetchBinary(); }}>
+              Download
+            </button>
+          </div>
+        `;
+      case 'error':
+        return html`
+          <div class="error-state">
+            <span class="placeholder-icon">⚠️</span>
+            <div>Failed to load file</div>
+            <button @click=${() => this._retryFetch()}>Retry</button>
+          </div>
+        `;
+      default: // 'rendered'
+        return html`
+          <div class="file-container">
+            <div class="file-icon">${this.fileIcon}</div>
+            <div class="file-info">
+              <div class="filename" title="${this.filename}">${this.filename}</div>
+              <div class="file-meta">${this.formatSize(this.size)} • ${this.mimeType}</div>
+            </div>
+            <button class="download-btn" @click=${this.handleDownload}>
+              ⬇ Download
+            </button>
+          </div>
+        `;
+    }
   }
 }
 

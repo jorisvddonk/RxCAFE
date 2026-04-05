@@ -382,7 +382,7 @@ const server = serve({
     if (pathname === '/api/session' && request.method === 'POST') return addCors(await api.handleCreateSession(await request.json().catch(() => ({}))), corsHeaders);
     if (pathname.match(/^\/api\/session\/[^/]+$/) && request.method === 'DELETE') return addCors(await api.handleDeleteSession(pathname.split('/')[3]), corsHeaders);
     if (pathname === '/api/models' && request.method === 'GET') return addCors(await api.handleListModels(url.searchParams.get('backend') || undefined, url.searchParams.get('baseUrl') || undefined), corsHeaders);
-    if (pathname.match(/^\/api\/session\/[^/]+\/history$/) && request.method === 'GET') return addCors(await api.handleGetHistory(pathname.split('/')[3]), corsHeaders);
+    if (pathname.match(/^\/api\/session\/[^/]+\/history$/) && request.method === 'GET') return addCors(await api.handleGetHistory(pathname.split('/')[3], url.searchParams.get('binaryRefs') === '1'), corsHeaders);
     if (pathname.match(/^\/api\/session\/[^/]+\/ui-mode$/) && request.method === 'POST') {
       const sessionId = pathname.split('/')[3];
       const body = await request.json().catch(() => ({}));
@@ -421,6 +421,12 @@ const server = serve({
       const parts = pathname.split('/');
       const [,,, sessionId,, chunkId] = parts;
       return addCors(await api.handleDeleteChunk(sessionId, chunkId), corsHeaders);
+    }
+    
+    if (pathname.match(/^\/api\/session\/[^/]+\/chunk\/[^/]+\/binary$/) && request.method === 'GET') {
+      const parts = pathname.split('/');
+      const [,,, sessionId,, chunkId] = parts;
+      return addCors(await api.handleGetChunkBinary(sessionId, chunkId), corsHeaders);
     }
     
     if (pathname.match(/^\/api\/chat\/[^/]+$/) && request.method === 'POST') {

@@ -89,11 +89,18 @@ List all active sessions.
 
 ```
 GET /api/session/:id/history
+GET /api/session/:id/history?binaryRefs=1
 ```
 
 Get full conversation history for a session.
 
-**Response:**
+**Query Parameters:**
+
+| Parameter | Description |
+|-----------|-------------|
+| `binaryRefs` | When set to `1`, binary chunks are replaced with lightweight `binary-ref` objects containing `chunkId`, `mimeType`, and `byteSize` instead of inline binary data. Useful for fast history loading when sessions contain large assets. |
+
+**Response (default):**
 ```json
 {
   "chunks": [
@@ -102,13 +109,66 @@ Get full conversation history for a session.
       "contentType": "text",
       "content": "Hello",
       "producer": "user",
-      "annotations": {
-        "chat.role": "user"
-      }
+      "annotations": { "chat.role": "user" }
+    },
+    {
+      "id": "chunk-2",
+      "contentType": "binary",
+      "content": { "data": [...], "mimeType": "image/png" },
+      "producer": "assistant",
+      "annotations": {}
     }
   ]
 }
 ```
+
+**Response with `?binaryRefs=1`:**
+```json
+{
+  "chunks": [
+    {
+      "id": "chunk-1",
+      "contentType": "text",
+      "content": "Hello",
+      "producer": "user",
+      "annotations": { "chat.role": "user" }
+    },
+    {
+      "id": "chunk-2",
+      "contentType": "binary-ref",
+      "content": { "chunkId": "chunk-2", "mimeType": "image/png", "byteSize": 204800 },
+      "producer": "assistant",
+      "annotations": {}
+    }
+  ]
+}
+```
+
+---
+
+#### Fetch Binary Chunk Data
+
+```
+GET /api/session/:sessionId/chunk/:chunkId/binary
+```
+
+Fetch the raw binary data for a specific chunk. Used by frontend widgets to load assets on demand when history was loaded in binary reference mode.
+
+**Response:** Raw binary data with appropriate headers.
+
+| Header | Value |
+|--------|-------|
+| `Content-Type` | The chunk's MIME type (e.g. `image/png`, `audio/mpeg`) |
+| `Content-Length` | Byte size of the binary data |
+
+**Error responses:**
+
+| Status | Condition |
+|--------|-----------|
+| `404` | Session or chunk not found |
+| `400` | Chunk exists but is not a binary chunk |
+| `401` | Missing or invalid auth token |
+| `500` | Binary data unavailable (corrupt chunk) |
 
 ---
 
@@ -454,8 +514,8 @@ data: {"message": "Error description", "timestamp": 1234567890}
 interface Chunk {
   id: string;
   timestamp: number;
-  contentType: 'text' | 'binary' | 'null';
-  content: string | BinaryContent | null;
+  contentType: 'text' | 'binary' | 'binary-ref' | 'null';
+  content: string | BinaryContent | BinaryRefContent | null;
   producer: string;
   annotations: Record<string, any>;
 }
@@ -463,6 +523,13 @@ interface Chunk {
 interface BinaryContent {
   data: Uint8Array;
   mimeType: string;
+}
+
+// Returned in place of BinaryContent when ?binaryRefs=1 is used on the history endpoint
+interface BinaryRefContent {
+  chunkId: string;   // Same as the chunk's id
+  mimeType: string;  // e.g. "image/png"
+  byteSize: number;  // Exact byte length of the binary data
 }
 ```
 

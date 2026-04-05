@@ -54,7 +54,7 @@ export class SessionsManager {
 
         try {
             console.log(`[RXCAFE] Fetching history for ${sessionId}...`);
-            const response = await fetch(this.chat.apiUrl(`/api/session/${sessionId}/history`));
+            const response = await fetch(this.chat.apiUrl(`/api/session/${sessionId}/history?binaryRefs=1`));
             const data = await response.json();
             console.log(`[RXCAFE] History response:`, data.sessionId, `chunks:`, data.chunks?.length ?? 0);
             

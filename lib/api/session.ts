@@ -8,9 +8,10 @@
  * - GET  /api/session/:id/history  Get session history
  * - POST /api/session/:id/trust     Toggle chunk trust
  * - POST /api/session/:id/ui-mode   Set UI mode
+ * - GET  /api/session/:sessionId/chunk/:chunkId/binary  Fetch raw binary data for a chunk
  */
 
-import { createNullChunk } from '../chunk.js';
+import { createNullChunk, type BinaryContent, type Chunk } from '../chunk.js';
 import {
   getSession,
   getAgent,
@@ -169,7 +170,20 @@ export async function handleDeleteSession(sessionId: string): Promise<Response> 
   });
 }
 
-export async function handleGetHistory(sessionId: string): Promise<Response> {
+function toBinaryRef(chunk: Chunk): any {
+  const binaryContent = chunk.content as BinaryContent;
+  return {
+    ...chunk,
+    contentType: 'binary-ref',
+    content: {
+      chunkId: chunk.id,
+      mimeType: binaryContent.mimeType,
+      byteSize: binaryContent.data.byteLength,
+    },
+  };
+}
+
+export async function handleGetHistory(sessionId: string, binaryRefs: boolean = false): Promise<Response> {
   let session = getSession(sessionId);
   
   if (!session && sessionStore) {
@@ -197,12 +211,16 @@ export async function handleGetHistory(sessionId: string): Promise<Response> {
   if (!session) {
     return new Response(JSON.stringify({ error: 'Session not found' }), { status: 404, headers: { 'Content-Type': 'application/json' } });
   }
+
+  const chunks = binaryRefs
+    ? session.history.map(chunk => chunk.contentType === 'binary' ? toBinaryRef(chunk) : chunk)
+    : session.history;
   
   return new Response(safeStringify({
     sessionId,
     displayName: session.displayName,
     uiMode: session.uiMode,
-    chunks: session.history
+    chunks,
   }), { headers: { 'Content-Type': 'application/json' } });
 }
 
@@ -335,4 +353,54 @@ export async function handleDeleteChunk(sessionId: string, chunkId: string): Pro
     chunkId,
     message: 'Chunk deleted'
   }), { headers: { 'Content-Type': 'application/json' } });
+}
+
+export async function handleGetChunkBinary(sessionId: string, chunkId: string): Promise<Response> {
+  let session = getSession(sessionId);
+
+  if (!session && sessionStore) {
+    const sessionData = await sessionStore.loadSession(sessionId);
+    if (sessionData) {
+      const agent = getAgent(sessionData.agentName);
+      if (agent) {
+        const restoredSession = await createSession(config, {
+          agentId: sessionData.agentName,
+          isBackground: sessionData.isBackground,
+          sessionId: sessionId,
+          uiMode: sessionData.uiMode,
+          ...sessionData.config,
+          systemPrompt: sessionData.systemPrompt || undefined,
+        });
+        if (restoredSession._agentContext) {
+          await restoredSession._agentContext.loadState();
+        }
+        session = restoredSession;
+      }
+    }
+  }
+
+  if (!session) {
+    return new Response(JSON.stringify({ error: 'Session not found' }), { status: 404, headers: { 'Content-Type': 'application/json' } });
+  }
+
+  const chunk = session.history.find(c => c.id === chunkId);
+  if (!chunk) {
+    return new Response(JSON.stringify({ error: 'Chunk not found' }), { status: 404, headers: { 'Content-Type': 'application/json' } });
+  }
+
+  if (chunk.contentType !== 'binary') {
+    return new Response(JSON.stringify({ error: 'Chunk is not a binary chunk', contentType: chunk.contentType }), { status: 400, headers: { 'Content-Type': 'application/json' } });
+  }
+
+  const binaryContent = chunk.content as BinaryContent;
+  if (!binaryContent?.data) {
+    return new Response(JSON.stringify({ error: 'Binary data unavailable' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+  }
+
+  return new Response(binaryContent.data, {
+    headers: {
+      'Content-Type': binaryContent.mimeType,
+      'Content-Length': String(binaryContent.data.byteLength),
+    },
+  });
 }

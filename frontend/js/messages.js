@@ -70,6 +70,18 @@ export class MessagesManager {
 
         console.log(`[RXCAFE] renderChunk id=${chunk.id} role=${role} content="${String(chunk.content ?? '').slice(0,60)}"`);
         
+        if (chunk.contentType === 'binary-ref') {
+            const mimeType = chunk.content?.mimeType || '';
+            if (mimeType.startsWith('image/')) {
+                this.addImageMessage(role || 'assistant', chunk);
+            } else if (mimeType.startsWith('audio/')) {
+                this.addAudioMessage(role || 'assistant', chunk);
+            } else {
+                this.addFileMessage(role || 'assistant', chunk);
+            }
+            return;
+        }
+
         if (chunk.contentType === 'binary') {
             const mimeType = chunk.content?.mimeType || '';
             console.log(`[RXCAFE] Rendering binary chunk, mimeType: ${mimeType}, role: ${role}`);
@@ -360,123 +372,140 @@ export class MessagesManager {
     }
 
     addImageMessage(role, chunk) {
-        if (!chunk.content || !chunk.content.data) {
-            console.error('[RXCAFE] Binary chunk missing data', chunk);
-            return;
-        }
-        const { data, mimeType } = chunk.content;
-        
-        let uint8;
-        if (data instanceof Uint8Array) {
-            uint8 = data;
-        } else if (Array.isArray(data)) {
-            uint8 = new Uint8Array(data);
-        } else if (typeof data === 'object' && data !== null) {
-            if (data.type === 'Buffer' && Array.isArray(data.data)) {
-                uint8 = new Uint8Array(data.data);
-            } else {
-                uint8 = new Uint8Array(Object.values(data));
-            }
-        } else {
-            console.error('[RXCAFE] Invalid image data format', data);
-            return;
-        }
-
-        const blob = new Blob([uint8], { type: mimeType });
-        const url = URL.createObjectURL(blob);
-        
         const imageEl = document.createElement('rx-message-image');
         this.chat._elCounter++;
         imageEl.dataset.elId = this.chat._elCounter;
         imageEl.role = role;
-        imageEl.src = url;
         imageEl.alt = chunk.annotations?.['image.description'] || 'Generated image';
         imageEl.description = chunk.annotations?.['image.description'] || '';
         imageEl.chunkId = chunk.id;
-        
+
+        if (chunk.contentType === 'binary-ref') {
+            imageEl.binaryRef = true;
+            imageEl.byteSize = chunk.content.byteSize;
+            imageEl.mimeType = chunk.content.mimeType;
+            imageEl.chunkId = chunk.content.chunkId;
+            imageEl.sessionId = this.chat.sessionId;
+        } else {
+            if (!chunk.content || !chunk.content.data) {
+                console.error('[RXCAFE] Binary chunk missing data', chunk);
+                return;
+            }
+            const { data, mimeType } = chunk.content;
+            let uint8;
+            if (data instanceof Uint8Array) {
+                uint8 = data;
+            } else if (Array.isArray(data)) {
+                uint8 = new Uint8Array(data);
+            } else if (typeof data === 'object' && data !== null) {
+                if (data.type === 'Buffer' && Array.isArray(data.data)) {
+                    uint8 = new Uint8Array(data.data);
+                } else {
+                    uint8 = new Uint8Array(Object.values(data));
+                }
+            } else {
+                console.error('[RXCAFE] Invalid image data format', data);
+                return;
+            }
+            const blob = new Blob([uint8], { type: mimeType });
+            imageEl.src = URL.createObjectURL(blob);
+        }
+
         this.chat.messagesEl.appendChild(imageEl);
         this.chat.chunkElements.set(chunk.id, imageEl);
         scrollToBottom(this.chat.messagesEl);
     }
 
     addAudioMessage(role, chunk) {
-        if (!chunk.content || !chunk.content.data) {
-            console.error('[RXCAFE] Binary chunk missing data', chunk);
-            return;
-        }
-        const { data, mimeType } = chunk.content;
-        
-        let uint8;
-        if (data instanceof Uint8Array) {
-            uint8 = data;
-        } else if (Array.isArray(data)) {
-            uint8 = new Uint8Array(data);
-        } else if (typeof data === 'object' && data !== null) {
-            if (data.type === 'Buffer' && Array.isArray(data.data)) {
-                uint8 = new Uint8Array(data.data);
-            } else {
-                uint8 = new Uint8Array(Object.values(data));
-            }
-        } else {
-            console.error('[RXCAFE] Invalid audio data format', data);
-            return;
-        }
-
-        const blob = new Blob([uint8], { type: mimeType });
-        const url = URL.createObjectURL(blob);
-        console.log(`[RXCAFE] Created audio blob URL: ${url} (size: ${blob.size} bytes, type: ${mimeType})`);
-        
         const audioEl = document.createElement('rx-message-audio');
         this.chat._elCounter++;
         audioEl.dataset.elId = this.chat._elCounter;
         audioEl.role = role;
-        audioEl.src = url;
         audioEl.description = chunk.annotations?.['audio.description'] || '';
         audioEl.chunkId = chunk.id;
-        
+
+        if (chunk.contentType === 'binary-ref') {
+            audioEl.binaryRef = true;
+            audioEl.byteSize = chunk.content.byteSize;
+            audioEl.mimeType = chunk.content.mimeType;
+            audioEl.chunkId = chunk.content.chunkId;
+            audioEl.sessionId = this.chat.sessionId;
+        } else {
+            if (!chunk.content || !chunk.content.data) {
+                console.error('[RXCAFE] Binary chunk missing data', chunk);
+                return;
+            }
+            const { data, mimeType } = chunk.content;
+            let uint8;
+            if (data instanceof Uint8Array) {
+                uint8 = data;
+            } else if (Array.isArray(data)) {
+                uint8 = new Uint8Array(data);
+            } else if (typeof data === 'object' && data !== null) {
+                if (data.type === 'Buffer' && Array.isArray(data.data)) {
+                    uint8 = new Uint8Array(data.data);
+                } else {
+                    uint8 = new Uint8Array(Object.values(data));
+                }
+            } else {
+                console.error('[RXCAFE] Invalid audio data format', data);
+                return;
+            }
+            const blob = new Blob([uint8], { type: mimeType });
+            const url = URL.createObjectURL(blob);
+            console.log(`[RXCAFE] Created audio blob URL: ${url} (size: ${blob.size} bytes, type: ${mimeType})`);
+            audioEl.src = url;
+        }
+
         this.chat.messagesEl.appendChild(audioEl);
         this.chat.chunkElements.set(chunk.id, audioEl);
         scrollToBottom(this.chat.messagesEl);
     }
 
     addFileMessage(role, chunk) {
-        if (!chunk.content || !chunk.content.data) {
-            console.error('[RXCAFE] Binary chunk missing data', chunk);
-            return;
-        }
-        const { data, mimeType } = chunk.content;
-        
-        let uint8;
-        if (data instanceof Uint8Array) {
-            uint8 = data;
-        } else if (Array.isArray(data)) {
-            uint8 = new Uint8Array(data);
-        } else if (typeof data === 'object' && data !== null) {
-            if (data.type === 'Buffer' && Array.isArray(data.data)) {
-                uint8 = new Uint8Array(data.data);
-            } else {
-                uint8 = new Uint8Array(Object.values(data));
-            }
-        } else {
-            console.error('[RXCAFE] Invalid binary data format', data);
-            return;
-        }
-
-        const blob = new Blob([uint8], { type: mimeType });
-        const url = URL.createObjectURL(blob);
-        
-        const filename = chunk.annotations?.['file.name'] || chunk.annotations?.['document.filename'] || `file.${mimeType.split('/')[1] || 'bin'}`;
-        
         const fileEl = document.createElement('rx-message-file');
         this.chat._elCounter++;
         fileEl.dataset.elId = this.chat._elCounter;
         fileEl.role = role;
-        fileEl.filename = filename;
-        fileEl.mimeType = mimeType;
-        fileEl.size = blob.size;
-        fileEl.dataUrl = url;
         fileEl.chunkId = chunk.id;
-        
+
+        if (chunk.contentType === 'binary-ref') {
+            fileEl.binaryRef = true;
+            fileEl.byteSize = chunk.content.byteSize;
+            fileEl.mimeType = chunk.content.mimeType;
+            fileEl.chunkId = chunk.content.chunkId;
+            fileEl.sessionId = this.chat.sessionId;
+            fileEl.filename = chunk.annotations?.['file.name'] || chunk.annotations?.['document.filename'] || `file.${chunk.content.mimeType.split('/')[1] || 'bin'}`;
+            fileEl.size = chunk.content.byteSize;
+        } else {
+            if (!chunk.content || !chunk.content.data) {
+                console.error('[RXCAFE] Binary chunk missing data', chunk);
+                return;
+            }
+            const { data, mimeType } = chunk.content;
+            let uint8;
+            if (data instanceof Uint8Array) {
+                uint8 = data;
+            } else if (Array.isArray(data)) {
+                uint8 = new Uint8Array(data);
+            } else if (typeof data === 'object' && data !== null) {
+                if (data.type === 'Buffer' && Array.isArray(data.data)) {
+                    uint8 = new Uint8Array(data.data);
+                } else {
+                    uint8 = new Uint8Array(Object.values(data));
+                }
+            } else {
+                console.error('[RXCAFE] Invalid binary data format', data);
+                return;
+            }
+            const blob = new Blob([uint8], { type: mimeType });
+            const url = URL.createObjectURL(blob);
+            fileEl.filename = chunk.annotations?.['file.name'] || chunk.annotations?.['document.filename'] || `file.${mimeType.split('/')[1] || 'bin'}`;
+            fileEl.mimeType = mimeType;
+            fileEl.size = blob.size;
+            fileEl.dataUrl = url;
+        }
+
         this.chat.messagesEl.appendChild(fileEl);
         this.chat.chunkElements.set(chunk.id, fileEl);
         scrollToBottom(this.chat.messagesEl);
