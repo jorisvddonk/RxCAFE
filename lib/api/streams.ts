@@ -33,9 +33,10 @@ export function handleSessionStream(sessionId: string, binaryRefs: boolean = fal
       
       const outputSub = session.outputStream.subscribe({
         next: (chunk: Chunk) => {
-          // Include text, binary, and null chunks with visualization annotations
+          // Include text, binary, null chunks with visualization or error annotations
           const isVisualization = chunk.contentType === 'null' && chunk.annotations?.['visualizer.type'] === 'rx-marbles';
-          if (chunk.contentType === 'text' || chunk.contentType === 'binary' || isVisualization) {
+          const isError = chunk.contentType === 'null' && chunk.annotations?.['error.message'];
+          if (chunk.contentType === 'text' || chunk.contentType === 'binary' || isVisualization || isError) {
             try {
               let serializedChunk: any = chunk;
               if (chunk.contentType === 'binary') {

@@ -493,6 +493,17 @@ class RXCafeChat {
         }
     }
     
+    renderErrorChunk(errorMessage) {
+        this.messagesManager.addErrorMessage({
+            id: crypto.randomUUID(),
+            contentType: 'null',
+            content: null,
+            producer: 'com.rxcafe.error',
+            annotations: { 'error.message': errorMessage },
+            timestamp: Date.now()
+        });
+    }
+    
     async updateUIState() {
         this.uiManager.updateUIState();
         await this.updateUIModeButton();

@@ -15,6 +15,7 @@ import { RxQuickResponses } from '../widgets/rx-quick-responses.js';
 import { RxWeather } from '../widgets/rx-weather.js';
 import { RxVegaGraph } from '../widgets/rx-vega-graph.js';
 import { RxChess } from '../widgets/rx-chess.js';
+import { RxMessageError } from '../widgets/rx-message-error.js';
 
 export class MessagesManager {
     constructor(chat) {
@@ -32,6 +33,11 @@ export class MessagesManager {
         
         if (!role && chunk.annotations?.['session.name']) {
             this.chat.chunkElements.set(chunk.id, null);
+            return;
+        }
+        
+        if (chunk.contentType === 'null' && chunk.annotations?.['error.message']) {
+            this.addErrorMessage(chunk);
             return;
         }
         
@@ -568,5 +574,18 @@ export class MessagesManager {
                 el.disabled = !this.chat.sessionId || this.chat.isGenerating;
             });
         }
+    }
+
+    addErrorMessage(chunk) {
+        const errorEl = document.createElement('rx-message-error');
+        this.chat._elCounter++;
+        errorEl.dataset.elId = this.chat._elCounter;
+        errorEl.message = chunk.annotations['error.message'] || 'Unknown error';
+        errorEl.backend = chunk.annotations['llm.backend'] || '';
+        errorEl.chunkId = chunk.id;
+
+        this.chat.messagesEl.appendChild(errorEl);
+        this.chat.chunkElements.set(chunk.id, errorEl);
+        scrollToBottom(this.chat.messagesEl);
     }
 }

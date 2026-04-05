@@ -6,7 +6,7 @@
 import type { AgentDefinition, AgentSessionContext } from '../lib/agent.js';
 import type { Chunk } from '../lib/chunk.js';
 import { annotateChunk } from '../lib/chunk.js';
-import { EMPTY, filter, map, mergeMap, catchError } from '../lib/stream.js';
+import { filter, map, mergeMap } from '../lib/stream.js';
 import { completeTurnWithLLM } from '../lib/evaluator-utils.js';
 
 export const defaultAgent: AgentDefinition = {
@@ -79,11 +79,6 @@ export const defaultAgent: AgentDefinition = {
         if (chunk.annotations['chat.role'] !== 'user') return [chunk];
         // Create fresh evaluator per message to pick up runtime config changes
         return completeTurnWithLLM(chunk, session.createLLMChunkEvaluator(), session);
-      }),
-      
-      catchError((error: Error) => {
-        session.errorStream.next(error);
-        return EMPTY;
       })
     ).subscribe({
       next: (chunk: Chunk) => session.outputStream.next(chunk),

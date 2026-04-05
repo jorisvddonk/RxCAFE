@@ -66,7 +66,7 @@ export async function handleChatStream(sessionId: string, message: string, isAdm
             try { controller.enqueue(`data: ${JSON.stringify({ type: 'finish' })}\n\n`); controller.enqueue(`data: ${JSON.stringify({ type: 'done' })}\n\n`); controller.close(); } catch { /* closed */ }
           },
           onError: (error: Error) => {
-            try { controller.enqueue(`data: ${JSON.stringify({ type: 'error', error: error.message })}\n\n`); controller.close(); } catch { /* closed */ }
+            try { controller.enqueue(`data: ${JSON.stringify({ type: 'error', error: error.message })}\n\n`); controller.enqueue(`data: ${JSON.stringify({ type: 'done' })}\n\n`); controller.close(); } catch { /* closed */ }
           }
         },
         config,

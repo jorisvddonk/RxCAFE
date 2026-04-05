@@ -128,9 +128,23 @@ export class StreamingManager {
                 return;
             }
 
+            const isError = chunk.contentType === 'null' && chunk.annotations?.['error.message'];
+            if (isError) {
+                chat.addRawChunk(chunk);
+                chat.renderChunk(chunk);
+                chat.updateInspector();
+                // Stop generating on error
+                chat.isGenerating = false;
+                chat.updateUIState();
+                return;
+            }
+
             chat.addRawChunk(chunk);
             chat.renderChunk(chunk);
             chat.updateInspector();
+            // Transition from stop to send on any chunk
+            chat.isGenerating = false;
+            chat.updateUIState();
         }
     }
 
@@ -177,9 +191,7 @@ export class StreamingManager {
                 }
                 break;
             case 'error':
-                if (chat.currentMessageEl) {
-                    chat.showErrorInMessage(chat.currentMessageEl, data.error);
-                }
+                chat.renderErrorChunk(data.error);
                 break;
             case 'finish':
             case 'done':

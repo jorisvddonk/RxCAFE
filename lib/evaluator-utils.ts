@@ -100,6 +100,21 @@ export function completeTurnWithLLM(
             if (session.callbacks?.onToken) {
               session.callbacks.onToken(token, assistantChunkId);
             }
+          } else if (tokenChunk.contentType === 'null' && tokenChunk.annotations['error.message']) {
+            const errorMsg = tokenChunk.annotations['error.message'] as string;
+            const err = new Error(errorMsg);
+            
+            subscriber.next(createNullChunk('com.rxcafe.error', {
+              'error.message': errorMsg,
+              'error.source-chunk-id': chunk.id
+            }));
+
+            if (session.callbacks?.onFinish) {
+              session.callbacks.onFinish();
+            }
+
+            subscriber.complete();
+            return;
           }
         }
         
@@ -133,12 +148,12 @@ export function completeTurnWithLLM(
           'error.message': error instanceof Error ? error.message : 'LLM error',
           'error.source-chunk-id': chunk.id
         }));
-        
-        if (session.callbacks?.onError) {
-          session.callbacks.onError(error instanceof Error ? error : new Error('LLM error'));
+
+        if (session.callbacks?.onFinish) {
+          session.callbacks.onFinish();
         }
-        
-        subscriber.error(error);
+
+        subscriber.complete();
       }
     })();
   });
