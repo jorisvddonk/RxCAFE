@@ -315,11 +315,23 @@ export class UIManager {
             const displayName = s.displayName || s.agentName;
             const bg = s.isBackground ? ' [background]' : '';
             const shortId = s.id.length > 20 ? '...' + s.id.slice(-6) : s.id;
-            
+            const messageCount = s.messageCount || 0;
+            const newMessageCount = s.newMessageCount || 0;
+
+            let badgeHtml = '';
+            if (messageCount > 0) {
+                if (newMessageCount > 0) {
+                    const readCount = messageCount - newMessageCount;
+                    badgeHtml = `<span class="session-item-badge-new">${readCount}+${newMessageCount}</span>`;
+                } else {
+                    badgeHtml = `<span class="session-item-badge">${messageCount}</span>`;
+                }
+            }
+
             return `
                 <div class="session-item ${isCurrent ? 'active' : ''}">
                     <div class="session-item-info">
-                        <div class="session-item-name">${displayName}${bg}</div>
+                        <div class="session-item-name">${displayName}${bg} ${badgeHtml}</div>
                         <div class="session-item-details">${shortId} • ${s.agentName}</div>
                     </div>
                     <div class="session-item-actions">
